@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    container_name: besentry_db
+    environment:
+      POSTGRES_DB: besentry
+      POSTGRES_USER: besentry
+      POSTGRES_PASSWORD: besentry_dev
+    ports:
+      - "5433:5432"   # 5432 dipakai PostgreSQL 18 lokal Windows
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: besentry_redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:

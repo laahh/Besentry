@@ -1,0 +1,90 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block breadcrumb %}<li class="breadcrumb-item active">Dashboard</li>{% endblock %}
+
+{% block content %}
+<!-- Stat widgets -->
+<div class="row">
+  {% include "dashboard/partials/stat_card.html" with color="primary" icon="layers" label="Total Zona" value=total_zona %}
+  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="maximize-2" label="Luas Zona (ha)" value=total_luas_ha|floatformat:"2g" %}
+  {% include "dashboard/partials/stat_card.html" with color="primary" icon="users" label="Pengguna Aktif" value=total_pengguna %}
+  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="bell" label="Notifikasi Hari Ini" value=0 %}
+</div>
+
+<div class="row">
+  <!-- Greeting -->
+  <div class="col-xl-4 box-col-12">
+    <div class="card profile-greeting">
+      <div class="card-header"></div>
+      <div class="card-body text-center p-t-0">
+        <h3 class="font-light">Selamat datang, {{ request.user.get_full_name|default:request.user.username }}!</h3>
+        <p>Pantau zona, aktivitas, dan notifikasi area operasional dari satu tempat.</p>
+        <a href="{% url 'admin:core_zona_add' %}" class="btn btn-light">Tambah Zona</a>
+      </div>
+      <div class="confetti">
+        {% for _ in "0123456789012" %}<div class="confetti-piece"></div>{% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Map -->
+  <div class="col-xl-8 box-col-12">
+    <div class="card">
+      <div class="card-header pb-0">
+        <h5>Peta Zona</h5>
+      </div>
+      <div class="card-body">
+        <div class="map-placeholder" id="peta-zona">
+          <i data-feather="map"></i>
+          <span>Peta interaktif (MapLibre) akan tampil di sini</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Latest zona -->
+<div class="row">
+  <div class="col-xl-12">
+    <div class="card">
+      <div class="card-header pb-0 d-flex justify-content-between align-items-center">
+        <h5>Zona Terbaru</h5>
+        <a class="btn btn-primary btn-sm" href="{% url 'admin:core_zona_changelist' %}">Lihat semua</a>
+      </div>
+      <div class="card-body">
+        {% if zona_terbaru %}
+        <div class="table-responsive">
+          <table class="table table-bordernone">
+            <thead>
+              <tr>
+                <th>Nama</th>
+                <th class="text-end">Luas (ha)</th>
+                <th class="text-end">Dibuat</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for zona in zona_terbaru %}
+              <tr>
+                <td>
+                  <a href="{% url 'admin:core_zona_change' zona.pk %}" class="f-w-600">{{ zona.nama }}</a>
+                </td>
+                <td class="text-end">{{ zona.luas_ha|floatformat:"2g" }}</td>
+                <td class="text-end">{{ zona.dibuat|timesince }} lalu</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+          <p class="mb-2">Belum ada zona.</p>
+          <a href="{% url 'admin:core_zona_add' %}" class="btn btn-outline-primary btn-sm">Tambah zona pertama</a>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

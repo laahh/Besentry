@@ -1,0 +1,59 @@
+/* BeSentry overrides on top of the Viho theme */
+
+.brand-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: Montserrat, sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--theme-deafult, #24695c);
+}
+
+.brand-text svg {
+  width: 26px;
+  height: 26px;
+}
+
+.dark-only .brand-text {
+  color: #fff;
+}
+
+/* Viho ships a placeholder bg.jpg; use the theme colours instead */
+.profile-greeting {
+  background-image: linear-gradient(135deg, #24695c 0%, #1b4c43 60%, #ba895d 140%) !important;
+  color: #fff;
+}
+
+.profile-greeting h3,
+.profile-greeting p {
+  color: #fff;
+}
+
+.map-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 380px;
+  border: 2px dashed #e6edef;
+  border-radius: 8px;
+  color: #999;
+}
+
+.map-placeholder svg {
+  width: 48px;
+  height: 48px;
+}
+
+.empty-state {
+  padding: 32px 0;
+  text-align: center;
+  color: #999;
+}
+
+.notification-dropdown .noti-empty {
+  padding: 12px 0;
+  text-align: center;
+}

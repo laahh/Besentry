@@ -1,0 +1,54 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="id" dir="ltr">
+
+<head>
+  {% include "layout/head.html" %}
+  <title>Masuk | BeSentry</title>
+  {% include "layout/theme_css.html" %}
+</head>
+
+<body>
+  <!-- login page start-->
+  <section>
+    <div class="container-fluid p-0">
+      <div class="row">
+        <div class="col-12">
+          <div class="login-card">
+            <form class="theme-form login-form" method="post" novalidate>
+              {% csrf_token %}
+              <div class="text-center mb-4"><span class="brand-text"><i data-feather="shield"></i><span>BeSentry</span></span></div>
+              <h4>Masuk</h4>
+              <h6>Silakan masuk ke akun Anda.</h6>
+              {% if form.non_field_errors %}
+              <div class="alert alert-danger" role="alert">Username atau password salah.</div>
+              {% endif %}
+              <div class="form-group">
+                <label for="{{ form.username.id_for_label }}">Username</label>
+                <div class="input-group"><span class="input-group-text"><i class="icon-user"></i></span>
+                  <input class="form-control" type="text" name="{{ form.username.html_name }}" id="{{ form.username.id_for_label }}"
+                    value="{{ form.username.value|default:'' }}" required autofocus autocomplete="username">
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="{{ form.password.id_for_label }}">Password</label>
+                <div class="input-group"><span class="input-group-text"><i class="icon-lock"></i></span>
+                  <input class="form-control" type="password" name="{{ form.password.html_name }}" id="{{ form.password.id_for_label }}"
+                    required autocomplete="current-password">
+                </div>
+              </div>
+              <input type="hidden" name="next" value="{{ next }}">
+              <div class="form-group">
+                <button class="btn btn-primary btn-block w-100" type="submit">Masuk</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <!-- login page end-->
+  {% include "layout/core_js.html" %}
+</body>
+
+</html>

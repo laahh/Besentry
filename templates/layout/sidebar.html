@@ -1,0 +1,44 @@
+{% load static %}
+<!-- Page Sidebar Start-->
+<header class="main-nav">
+  <div class="sidebar-user text-center">
+    <img class="img-90 rounded-circle" src="{% static 'assets/images/dashboard/1.png' %}" alt="">
+    <h6 class="mt-3 f-14 f-w-600">{{ request.user.get_full_name|default:request.user.username }}</h6>
+    <p class="mb-0 font-roboto">{% if request.user.is_superuser %}Administrator{% else %}Pengguna{% endif %}</p>
+  </div>
+  <nav>
+    <div class="main-navbar">
+      <div class="left-arrow" id="left-arrow"><i data-feather="arrow-left"></i></div>
+      <div id="mainnav">
+        <ul class="nav-menu custom-scrollbar">
+          <li class="back-btn">
+            <div class="mobile-back text-end"><span>Kembali</span><i class="fa fa-angle-right ps-2" aria-hidden="true"></i></div>
+          </li>
+          {# Menu items come from navigation/menu.py #}
+          {% for section in sidebar_menu %}
+          <li class="sidebar-main-title">
+            <div>
+              <h6>{{ section.title }}</h6>
+            </div>
+          </li>
+          {% for item in section.items %}
+          {% if item.children %}
+          <li class="dropdown"><a class="nav-link menu-title" href="javascript:void(0)"><i data-feather="{{ item.icon }}"></i><span>{{ item.title }}</span></a>
+            <ul class="nav-submenu menu-content">
+              {% for child in item.children %}
+              <li><a href="{{ child.url }}">{{ child.title }}</a></li>
+              {% endfor %}
+            </ul>
+          </li>
+          {% else %}
+          <li class="dropdown"><a class="nav-link menu-title link-nav" href="{{ item.url }}"><i data-feather="{{ item.icon }}"></i><span>{{ item.title }}</span></a></li>
+          {% endif %}
+          {% endfor %}
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="right-arrow" id="right-arrow"><i data-feather="arrow-right"></i></div>
+    </div>
+  </nav>
+</header>
+<!-- Page Sidebar Ends-->

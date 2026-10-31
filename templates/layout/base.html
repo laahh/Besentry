@@ -1,0 +1,62 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="id" dir="ltr">
+
+<head>
+  {% include "layout/head.html" %}
+  <title>{% block title %}Dashboard{% endblock %} | BeSentry</title>
+  <!-- Plugins css start-->
+  {% block css %}{% endblock css %}
+  <!-- Plugins css Ends-->
+  {% include "layout/theme_css.html" %}
+</head>
+
+<body>
+  <!-- Loader starts-->
+  <div class="loader-wrapper">
+    <div class="theme-loader">
+      <div class="loader-p"></div>
+    </div>
+  </div>
+  <!-- Loader ends-->
+  <!-- page-wrapper Start-->
+  <div class="page-wrapper compact-wrapper" id="pageWrapper">
+    {% include "layout/header.html" %}
+    <!-- Page Body Start-->
+    <div class="page-body-wrapper sidebar-icon">
+      {% include "layout/sidebar.html" %}
+      <div class="page-body">
+        <div class="container-fluid">
+          <div class="page-header">
+            <div class="row">
+              <div class="col-sm-6">
+                <h3>{% block page_title %}{% endblock %}</h3>
+                <ol class="breadcrumb">
+                  <li class="breadcrumb-item"><a href="{% url 'dashboard:index' %}">Beranda</a></li>
+                  {% block breadcrumb %}{% endblock %}
+                </ol>
+              </div>
+              <div class="col-sm-6 text-sm-end">
+                {% block page_actions %}{% endblock %}
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Container-fluid starts-->
+        <div class="container-fluid">
+          {% block content %}{% endblock content %}
+        </div>
+        <!-- Container-fluid Ends-->
+      </div>
+      {% include "layout/footer.html" %}
+    </div>
+  </div>
+  {% include "layout/core_js.html" %}
+  <!-- Plugins JS start-->
+  {% block scriptcontent %}{% endblock scriptcontent %}
+  <!-- Plugins JS Ends-->
+  <!-- Theme js-->
+  <script src="{% static 'assets/js/script.js' %}"></script>
+</body>
+
+</html>
