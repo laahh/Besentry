@@ -9,8 +9,10 @@ Django 5.2 + GeoDjango + PostGIS + Channels (realtime, via Redis).
 | Python | 3.12 | `.venv` |
 | Django | 5.2 LTS | `.venv` |
 | PostgreSQL + PostGIS | 17 + 3.5 | Docker (`besentry_db`, port **5433**, karena 5432 dipakai PostgreSQL lokal) |
-| Redis | 7 | Docker (`besentry_redis`, port 6379) |
+| Redis | 7 | Docker (`besentry_redis`, port 6379): channel layer + antrean job (django-rq) |
 | GDAL / GEOS / PROJ | 3.13 | wheel di `.venv` atau OSGeo4W |
+| TiTiler | 2.4.0 | Docker (`besentry_titiler`, port 8081): tile orthophoto |
+| Worker | - | Docker (`besentry_worker`): konversi orthophoto |
 
 ## Install GDAL (sekali saja)
 
@@ -44,6 +46,22 @@ python manage.py runserver          # http://127.0.0.1:8000/admin
 ```
 
 Buka http://127.0.0.1:8000 (diarahkan ke `/login/`, lalu `/dashboard/`).
+
+## Orthophoto bulanan
+
+Orthophoto terbaru disajikan sebagai tile oleh TiTiler. Hanya satu orthophoto yang disimpan; publish bulan baru menggantikan yang lama.
+
+1. Salin file mentah (GeoTIFF RGBA, band 4 = alpha) ke `data/incoming/`.
+2. Buka **Spasial > Orthophoto** (`/orthophoto/`, khusus `admin-hazard-motion`), pilih file dan bulan, klik **Publish**.
+3. Service `worker` mengonversi ke COG (Web Mercator, JPEG + mask), memeriksa lewat TiTiler, lalu menjadikannya bulan aktif dan menghapus COG lama di `data/cog/`.
+
+File mentah di `data/incoming/` tidak dihapus otomatis. `data/` tidak masuk git maupun image Docker.
+
+Peta (MapLibre) mengambil bulan aktif dari `GET /api/orthophoto/current/` (`tile_url`, `bounds`, `minzoom`, `maxzoom`, `tile_size`).
+
+Tanpa antrean (untuk tes): `docker compose exec web python manage.py publish_orthophoto <file> --bulan 2026-11`.
+
+Setelah mengubah kode di `orthophoto/`, restart worker: `docker compose restart worker`.
 
 ## Struktur UI (template Viho)
 

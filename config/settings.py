@@ -54,9 +54,11 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_gis',
     'channels',
+    'django_rq',
     'core',
     'dashboard',
     'navigation',
+    'orthophoto',
 ]
 
 MIDDLEWARE = [
@@ -107,6 +109,30 @@ CHANNEL_LAYERS = {
         'CONFIG': {'hosts': [env('REDIS_URL')]},
     },
 }
+
+
+# Background jobs (django-rq, run by the `worker` service)
+
+RQ_QUEUES = {
+    'orthophoto': {
+        'URL': env('REDIS_URL'),
+        'DEFAULT_TIMEOUT': 6 * 60 * 60,  # converting a ~20 GB orthophoto can take hours
+    },
+}
+
+
+# Monthly orthophoto, served as tiles by TiTiler
+
+ORTHOPHOTO_INCOMING_DIR = Path(env('ORTHOPHOTO_INCOMING_DIR', default=str(BASE_DIR / 'data/incoming')))
+ORTHOPHOTO_COG_DIR = Path(env('ORTHOPHOTO_COG_DIR', default=str(BASE_DIR / 'data/cog')))
+ORTHOPHOTO_GDAL_THREADS = env('ORTHOPHOTO_GDAL_THREADS', default='ALL_CPUS')
+ORTHOPHOTO_GDAL_CACHEMAX_MB = env.int('ORTHOPHOTO_GDAL_CACHEMAX_MB', default=2048)
+
+# The COG folder as TiTiler sees it (compose mounts ./data/cog at /data/cog).
+TITILER_COG_DIR = env('TITILER_COG_DIR', default='/data/cog')
+# Used by the worker to verify a new COG; the browser uses the public URL.
+TITILER_INTERNAL_URL = env('TITILER_INTERNAL_URL', default='http://localhost:8081')
+TITILER_PUBLIC_URL = env('TITILER_PUBLIC_URL', default='http://localhost:8081')
 
 
 # Password validation
