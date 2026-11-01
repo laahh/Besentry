@@ -51,6 +51,12 @@ class DashboardContentTests(TestCase):
         self.assertAlmostEqual(response.context['total_luas_ha'], 123.6, delta=2)
         self.assertContains(response, 'Pit A')
 
+    def test_map_loads_maplibre_and_current_orthophoto(self):
+        response = self.client.get(reverse('dashboard:index'))
+        self.assertContains(response, '"maplibre-gl": "https://unpkg.com/maplibre-gl@')
+        self.assertContains(response, 'id="peta"')
+        self.assertContains(response, reverse('orthophoto:current'))
+
     def test_logout_via_post_returns_to_login(self):
         response = self.client.post(reverse('logout'))
         self.assertRedirects(response, reverse('login'), fetch_redirect_response=False)

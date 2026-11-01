@@ -17,5 +17,59 @@ services:
     ports:
       - "6379:6379"
 
+  web:
+    build: .
+    container_name: besentry_web
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    env_file: .env
+    environment:
+      # Di dalam jaringan compose, pakai nama service, bukan localhost
+      DATABASE_URL: postgis://besentry:besentry_dev@db:5432/besentry
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app   # kode di-mount supaya runserver auto-reload
+    depends_on:
+      - db
+      - redis
+
+  worker:
+    build: .
+    container_name: besentry_worker
+    # Menjalankan job antrean "orthophoto" (konversi COG), terpisah dari web
+    command: python manage.py orthophoto_worker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgis://besentry:besentry_dev@db:5432/besentry
+      REDIS_URL: redis://redis:6379/0
+      TITILER_INTERNAL_URL: http://titiler:8000
+    volumes:
+      - .:/app   # termasuk data/incoming dan data/cog
+    depends_on:
+      - db
+      - redis
+      - titiler
+    restart: unless-stopped
+
+  titiler:
+    image: ghcr.io/developmentseed/titiler:2.4.0
+    container_name: besentry_titiler
+    command: uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers 2
+    environment:
+      # Tiap bulan nama file COG berbeda, jadi tile aman di-cache lama
+      - TITILER_API_CACHECONTROL=public, max-age=31536000, immutable
+      - GDAL_CACHEMAX=200
+      - GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR
+      - GDAL_HTTP_MERGE_CONSECUTIVE_RANGES=YES
+      - VSI_CACHE=TRUE
+      - VSI_CACHE_SIZE=5000000
+      - CPL_VSIL_CURL_ALLOWED_EXTENSIONS=.tif,.TIF,.tiff
+    volumes:
+      - ./data/cog:/data/cog:ro
+    ports:
+      - "8081:8000"
+    restart: unless-stopped
+
 volumes:
   pgdata:

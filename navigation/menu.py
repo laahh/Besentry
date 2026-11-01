@@ -54,6 +54,7 @@ MAIN_MENU = (
             MenuItem('WMS', page='spasial-wms'),
             MenuItem('Area Kerja + Area CCTV', page='spasial-area-kerja'),
             MenuItem('Boundary Monitoring', page='spasial-boundary-monitoring'),
+            MenuItem('Orthophoto', url_name='orthophoto:publish', groups=(roles.ADMIN_HAZARD_MOTION,)),
         )),
         MenuItem('DOP', 'file-text', page='dop'),
         MenuItem('DOP Safety GMO', 'shield', page='dop-safety'),

@@ -1,0 +1,164 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Orthophoto{% endblock %}
+{% block page_title %}Orthophoto{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item">Spasial</li>
+<li class="breadcrumb-item active">Orthophoto</li>
+{% endblock %}
+
+{% block content %}
+{% for message in messages %}
+<div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %}" role="alert">{{ message }}</div>
+{% endfor %}
+
+<div class="row">
+  <!-- Current month -->
+  <div class="col-xl-5 box-col-12">
+    <div class="card">
+      <div class="card-header pb-0">
+        <h5>Orthophoto aktif</h5>
+      </div>
+      <div class="card-body">
+        {% if aktif %}
+        <h3 class="mb-3">{{ aktif.bulan|date:"F Y" }}</h3>
+        <table class="table table-bordernone mb-3">
+          <tbody>
+            <tr><td class="ps-0">File COG</td><td><code>{{ aktif.file_cog }}</code></td></tr>
+            <tr><td class="ps-0">Zoom</td><td>{{ aktif.zoom_min }}–{{ aktif.zoom_maks }}</td></tr>
+            <tr><td class="ps-0">Dipublish</td><td>{{ aktif.selesai|date:"d M Y H:i" }}{% if aktif.dibuat_oleh %} oleh {{ aktif.dibuat_oleh.get_username }}{% endif %}</td></tr>
+          </tbody>
+        </table>
+        <a class="btn btn-outline-primary btn-sm" href="{{ preview_url }}" target="_blank" rel="noopener">Lihat di TiTiler</a>
+        {% else %}
+        <div class="empty-state">
+          <i data-feather="image"></i>
+          <p class="mt-2 mb-0">Belum ada orthophoto aktif.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- New publish -->
+  <div class="col-xl-7 box-col-12">
+    <div class="card">
+      <div class="card-header pb-0">
+        <h5>Publish orthophoto baru</h5>
+      </div>
+      <div class="card-body">
+        <p class="f-12">Salin file mentah (GeoTIFF RGBA) ke folder <code>data/incoming/</code> di server, lalu pilih di sini. Konversi berjalan di worker; halaman ini boleh ditutup.</p>
+        {% if berjalan %}
+        <div class="alert alert-info" role="alert">Publish {{ berjalan.bulan|date:"F Y" }} sedang berjalan. Publish baru bisa dimulai setelah selesai.</div>
+        {% endif %}
+        {% if form.file_sumber.field.choices %}
+        <form method="post">
+          {% csrf_token %}
+          {{ form.non_field_errors }}
+          <div class="mb-3">
+            <label class="form-label" for="{{ form.file_sumber.id_for_label }}">{{ form.file_sumber.label }}</label>
+            <select class="form-select" name="{{ form.file_sumber.html_name }}" id="{{ form.file_sumber.id_for_label }}">
+              {% for value, label in form.file_sumber.field.choices %}
+              <option value="{{ value }}"{% if form.file_sumber.value == value %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            {% for error in form.file_sumber.errors %}<div class="text-danger f-12">{{ error }}</div>{% endfor %}
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="{{ form.bulan.id_for_label }}">{{ form.bulan.label }}</label>
+            <input class="form-control" type="month" name="{{ form.bulan.html_name }}" id="{{ form.bulan.id_for_label }}" value="{{ form.bulan.value|default:'' }}" required>
+            {% for error in form.bulan.errors %}<div class="text-danger f-12">{{ error }}</div>{% endfor %}
+          </div>
+          <button class="btn btn-primary" type="submit"{% if berjalan %} disabled{% endif %}>Publish</button>
+        </form>
+        {% else %}
+        <div class="empty-state">
+          <i data-feather="upload"></i>
+          <p class="mt-2 mb-0">Belum ada file di <code>data/incoming/</code>.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- History -->
+<div class="row">
+  <div class="col-xl-12">
+    <div class="card">
+      <div class="card-header pb-0">
+        <h5>Riwayat publish</h5>
+      </div>
+      <div class="card-body">
+        {% if riwayat %}
+        <div class="table-responsive">
+          <table class="table table-bordernone">
+            <thead>
+              <tr>
+                <th>Bulan</th>
+                <th>File mentah</th>
+                <th>Status</th>
+                <th>Oleh</th>
+                <th class="text-end">Dibuat</th>
+                <th class="text-end">Selesai</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in riwayat %}
+              <tr data-orthophoto="{{ row.id }}">
+                <td class="f-w-600">{{ row.ortho.bulan|date:"F Y" }}{% if row.ortho.aktif %} <span class="badge badge-primary">aktif</span>{% endif %}</td>
+                <td><code>{{ row.ortho.file_sumber }}</code></td>
+                <td style="min-width: 220px">
+                  <span class="badge badge-{{ row.badge }}" data-role="badge">{{ row.status_label }}</span>
+                  <div class="progress mt-2{% if not row.berjalan %} d-none{% endif %}" style="height: 6px" data-role="progress">
+                    <div class="progress-bar bg-info" role="progressbar" style="width: {{ row.progres }}%"></div>
+                  </div>
+                  <div class="text-danger f-12 mt-1" data-role="error">{{ row.pesan_error|truncatechars:300 }}</div>
+                </td>
+                <td>{{ row.ortho.dibuat_oleh.get_username|default:"-" }}</td>
+                <td class="text-end">{{ row.ortho.dibuat|date:"d M Y H:i" }}</td>
+                <td class="text-end">{{ row.ortho.selesai|date:"d M Y H:i"|default:"-" }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+          <p class="mb-0">Belum ada publish.</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+<p class="f-12 text-muted">Orthophoto dan layanan peta dikelola oleh Survey &amp; Geospatial Information.</p>
+{% endblock %}
+
+{% block scriptcontent %}
+{% if berjalan %}
+<script>
+  // Refresh progress while a publish runs; reload once it is done so the whole page is current.
+  (function poll() {
+    fetch('{% url "orthophoto:status" %}', {headers: {'Accept': 'application/json'}})
+      .then((response) => response.json())
+      .then((data) => {
+        if (!data.berjalan) {
+          window.location.reload();
+          return;
+        }
+        data.riwayat.forEach((row) => {
+          const tr = document.querySelector(`[data-orthophoto="${row.id}"]`);
+          if (!tr) return;
+          const badge = tr.querySelector('[data-role="badge"]');
+          badge.className = `badge badge-${row.badge}`;
+          badge.textContent = row.status_label;
+          tr.querySelector('[data-role="progress"] .progress-bar').style.width = `${row.progres}%`;
+        });
+        setTimeout(poll, 5000);
+      })
+      .catch(() => setTimeout(poll, 10000));
+  })();
+</script>
+{% endif %}
+{% endblock %}
