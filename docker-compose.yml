@@ -17,5 +17,22 @@ services:
     ports:
       - "6379:6379"
 
+  web:
+    build: .
+    container_name: besentry_web
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    env_file: .env
+    environment:
+      # Di dalam jaringan compose, pakai nama service, bukan localhost
+      DATABASE_URL: postgis://besentry:besentry_dev@db:5432/besentry
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app   # kode di-mount supaya runserver auto-reload
+    depends_on:
+      - db
+      - redis
+
 volumes:
   pgdata:

@@ -99,7 +99,7 @@ DATABASES = {
 }
 
 
-# Realtime (Channels) & background jobs (Celery)
+# Realtime (Channels)
 
 CHANNEL_LAYERS = {
     'default': {
@@ -107,10 +107,6 @@ CHANNEL_LAYERS = {
         'CONFIG': {'hosts': [env('REDIS_URL')]},
     },
 }
-
-CELERY_BROKER_URL = env('REDIS_URL')
-CELERY_RESULT_BACKEND = env('REDIS_URL')
-CELERY_TIMEZONE = 'Asia/Makassar'
 
 
 # Password validation

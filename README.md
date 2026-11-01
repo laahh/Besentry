@@ -1,6 +1,6 @@
 # BeSentry
 
-Django 5.2 + GeoDjango + PostGIS + Channels (realtime) + Celery.
+Django 5.2 + GeoDjango + PostGIS + Channels (realtime, via Redis).
 
 ## Stack
 
@@ -41,12 +41,6 @@ python manage.py createsuperuser
 docker compose up -d
 .\.venv\Scripts\Activate.ps1
 python manage.py runserver          # http://127.0.0.1:8000/admin
-```
-
-Worker Celery (terminal terpisah, `--pool=solo` wajib di Windows):
-
-```powershell
-celery -A config worker --pool=solo -l info
 ```
 
 Buka http://127.0.0.1:8000 (diarahkan ke `/login/`, lalu `/dashboard/`).
