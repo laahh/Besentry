@@ -49,6 +49,8 @@ Buka http://127.0.0.1:8000 (diarahkan ke `/login/`, lalu `/dashboard/`).
 
 ## Orthophoto bulanan
 
+Dikelola oleh **Survey & Geospatial Information**. Setiap peta di BeSentry mencantumkan kredit ini (lewat `createMap` di `static/js/peta.js`).
+
 Orthophoto terbaru disajikan sebagai tile oleh TiTiler. Hanya satu orthophoto yang disimpan; publish bulan baru menggantikan yang lama.
 
 1. Salin file mentah (GeoTIFF RGBA, band 4 = alpha) ke `data/incoming/`.
@@ -57,7 +59,7 @@ Orthophoto terbaru disajikan sebagai tile oleh TiTiler. Hanya satu orthophoto ya
 
 File mentah di `data/incoming/` tidak dihapus otomatis. `data/` tidak masuk git maupun image Docker.
 
-Peta (MapLibre) mengambil bulan aktif dari `GET /api/orthophoto/current/` (`tile_url`, `bounds`, `minzoom`, `maxzoom`, `tile_size`).
+Peta (MapLibre) mengambil bulan aktif dari `GET /api/orthophoto/current/` (`tile_url`, `bounds`, `minzoom`, `maxzoom`, `tile_size`). Untuk halaman peta baru: `{% include "layout/maplibre.html" %}` di blok `css`, buat peta dengan `createMap` dari `static/js/peta.js` (basemap + kredit), lalu pakai `addOrthophotoLayer` dan `OrthophotoControl` dari `static/js/orthophoto-layer.js` (contoh: `templates/dashboard/index.html`).
 
 Tanpa antrean (untuk tes): `docker compose exec web python manage.py publish_orthophoto <file> --bulan 2026-11`.
 

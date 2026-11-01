@@ -132,7 +132,8 @@ class ViewTests(TempDirsMixin, TestCase):
         self.client.force_login(self.other)
         self.assertEqual(self.client.get(reverse('orthophoto:publish')).status_code, 403)
         self.client.force_login(self.admin)
-        self.assertEqual(self.client.get(reverse('orthophoto:publish')).status_code, 200)
+        response = self.client.get(reverse('orthophoto:publish'))
+        self.assertContains(response, 'Survey &amp; Geospatial Information')
 
     @mock.patch('orthophoto.jobs.enqueue_publish')
     def test_publish_creates_record_and_enqueues(self, enqueue):

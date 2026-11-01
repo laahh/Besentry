@@ -3,6 +3,7 @@
 {% block title %}Dashboard{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
 {% block breadcrumb %}<li class="breadcrumb-item active">Dashboard</li>{% endblock %}
+{% block css %}{% include "layout/maplibre.html" %}{% endblock %}
 
 {% block content %}
 <!-- Stat widgets -->
@@ -33,13 +34,11 @@
   <div class="col-xl-8 box-col-12">
     <div class="card">
       <div class="card-header pb-0">
-        <h5>Peta Zona</h5>
+        <h5>Peta</h5>
       </div>
       <div class="card-body">
-        <div class="map-placeholder" id="peta-zona">
-          <i data-feather="map"></i>
-          <span>Peta interaktif (MapLibre) akan tampil di sini</span>
-        </div>
+        <div class="peta" id="peta"></div>
+        <p class="f-12 mt-2 mb-0 d-none" id="peta-kosong">Belum ada orthophoto aktif.</p>
       </div>
     </div>
   </div>
@@ -87,4 +86,24 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scriptcontent %}
+{% load static %}
+<script type="module">
+  import * as maplibregl from 'maplibre-gl';
+  import { createMap } from "{% static 'js/peta.js' %}";
+  import { addOrthophotoLayer, OrthophotoControl } from "{% static 'js/orthophoto-layer.js' %}";
+
+  const map = createMap(maplibregl, { container: 'peta' });
+  map.on('load', async () => {
+    const ortho = await addOrthophotoLayer(map, { apiUrl: "{% url 'orthophoto:current' %}" });
+    if (!ortho) {
+      document.getElementById('peta-kosong').classList.remove('d-none');
+      return;
+    }
+    map.addControl(new OrthophotoControl(ortho), 'top-right');
+    map.fitBounds(ortho.bounds, { padding: 24, duration: 0 });
+  });
+</script>
 {% endblock %}
