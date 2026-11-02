@@ -7,10 +7,13 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
+from rq.exceptions import NoSuchJobError
+from rq.job import JobStatus
 
 from navigation import roles
 
-from . import services
+from . import jobs, services
 from .forms import parse_bulan
 from .models import Orthophoto
 
@@ -120,9 +123,52 @@ class ConvertTests(TempDirsMixin, TestCase):
                 services.convert_to_cog('a.tif', 'b.tif', lambda percent: None)
 
 
+@mock.patch('orthophoto.jobs.django_rq.get_connection')
+class SyncWithQueueTests(TestCase):
+    def _ortho(self, minutes_old=5, **fields):
+        ortho = Orthophoto.objects.create(bulan=parse_bulan('2026-09'), file_sumber='a.tif', **fields)
+        Orthophoto.objects.filter(pk=ortho.pk).update(
+            dibuat=timezone.now() - datetime.timedelta(minutes=minutes_old))
+        return ortho
+
+    def test_failed_job_marks_record_failed_with_its_error(self, connection):
+        ortho = self._ortho(job_id='orthophoto-1')
+        job = mock.Mock()
+        job.get_status.return_value = JobStatus.FAILED
+        job.latest_result.return_value.exc_string = (
+            'Traceback (most recent call last):\n  ...\nPermissionError: [Errno 13] /app/data/cog')
+        with mock.patch.object(jobs.Job, 'fetch', return_value=job):
+            self.assertEqual(jobs.sync_with_queue(), 1)
+        ortho.refresh_from_db()
+        self.assertEqual(ortho.status, Orthophoto.Status.GAGAL)
+        self.assertEqual(ortho.pesan_error, 'PermissionError: [Errno 13] /app/data/cog')
+
+    def test_queued_job_is_left_alone(self, connection):
+        ortho = self._ortho(job_id='orthophoto-1')
+        job = mock.Mock()
+        job.get_status.return_value = JobStatus.QUEUED
+        with mock.patch.object(jobs.Job, 'fetch', return_value=job):
+            self.assertEqual(jobs.sync_with_queue(), 0)
+        ortho.refresh_from_db()
+        self.assertEqual(ortho.status, Orthophoto.Status.MENUNGGU)
+
+    def test_missing_job_fails_only_after_grace_period(self, connection):
+        fresh = self._ortho(minutes_old=0)
+        old = self._ortho(job_id='orthophoto-x')
+        with mock.patch.object(jobs.Job, 'fetch', side_effect=NoSuchJobError):
+            jobs.sync_with_queue()
+        fresh.refresh_from_db()
+        old.refresh_from_db()
+        self.assertEqual(fresh.status, Orthophoto.Status.MENUNGGU)
+        self.assertEqual((old.status, old.pesan_error), (Orthophoto.Status.GAGAL, jobs.MISSING_JOB_MESSAGE))
+
+
 class ViewTests(TempDirsMixin, TestCase):
     def setUp(self):
         super().setUp()
+        sync = mock.patch('orthophoto.jobs.sync_with_queue', return_value=0)
+        sync.start()
+        self.addCleanup(sync.stop)
         User = get_user_model()
         self.admin = User.objects.create_user('admin', password='x')
         self.admin.groups.add(Group.objects.get(name=roles.ADMIN_HAZARD_MOTION))

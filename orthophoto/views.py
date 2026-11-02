@@ -42,7 +42,8 @@ def _status_row(ortho):
 @login_required
 def publish(request):
     _check_publisher(request.user)
-    berjalan = Orthophoto.objects.filter(status__in=Orthophoto.BERJALAN).first()
+    jobs.sync_with_queue()
+    berjalan =Orthophoto.objects.filter(status__in=Orthophoto.BERJALAN).first()
 
     form = PublishForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
@@ -76,6 +77,7 @@ def publish(request):
 def status(request):
     """Polled by the publish page while a job runs."""
     _check_publisher(request.user)
+    jobs.sync_with_queue()
     rows = Orthophoto.objects.all()[:RIWAYAT_LIMIT]
     return JsonResponse({
         'berjalan': any(ortho.berjalan for ortho in rows),
