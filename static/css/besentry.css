@@ -46,6 +46,61 @@
   cursor: pointer;
 }
 
+/* Feather icons inside buttons and tabs, at text size */
+.btn svg,
+.nav-tabs .nav-link svg {
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+
+/* CCTV database */
+.cctv-table td,
+.cctv-table th {
+  padding: 10px 12px;
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+.peta-kecil {
+  height: 260px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.titik {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  border-radius: 50%;
+  border: 1px solid #fff;
+  box-shadow: 0 0 0 1px #ccc;
+}
+
+/* Keep in step with KONDISI_COLORS in static/js/cctv-layer.js */
+.titik-baik { background: #51bb25; }
+.titik-breakdown { background: #dc3545; }
+.titik-repair { background: #f8b425; }
+.titik-dismantle { background: #2c323f; }
+.titik-take_out { background: #999999; }
+
+.info-table td {
+  padding: 6px 0;
+  border: 0;
+  vertical-align: top;
+}
+
+.info-table td:first-child {
+  width: 40%;
+  color: #999;
+}
+
+.riwayat-item + .riwayat-item {
+  border-top: 1px dashed #e6edef;
+}
+
 .empty-state {
   padding: 32px 0;
   text-align: center;

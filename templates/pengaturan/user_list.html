@@ -1,0 +1,64 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Pengguna{% endblock %}
+{% block page_title %}Pengguna{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item">Pengaturan</li>
+<li class="breadcrumb-item active">Pengguna</li>
+{% endblock %}
+{% block page_actions %}
+<a class="btn btn-outline-primary btn-sm" href="{% url 'pengaturan:role_list' %}"><i data-feather="user-check"></i>Role & Akses</a>
+{% endblock %}
+
+{% block content %}
+{% include "partials/messages.html" %}
+
+<div class="card">
+  <div class="card-body">
+    <form method="get" class="d-flex flex-wrap gap-2 mb-3">
+      {% if role_filter %}<input type="hidden" name="role" value="{{ role_filter.pk }}">{% endif %}
+      <input class="form-control form-control-sm flex-grow-1 w-auto" type="search" name="q" value="{{ q }}" placeholder="Cari username, nama, atau email">
+      <button class="btn btn-primary btn-sm" type="submit"><i data-feather="search"></i>Cari</button>
+    </form>
+    {% if role_filter %}
+    <p class="mb-3">Role: <span class="badge badge-primary">{{ role_filter.name }}</span> <a class="f-12 ms-1" href="{% url 'pengaturan:user_list' %}">Tampilkan semua pengguna</a></p>
+    {% endif %}
+
+    {% if page_obj.object_list %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle cctv-table">
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Nama</th>
+            <th>Role</th>
+            <th>Login terakhir</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in page_obj %}
+          <tr>
+            <td class="text-nowrap">
+              <span class="f-w-600">{{ u.username }}</span>
+              {% if u.is_superuser %}<span class="badge badge-primary ms-1">Superuser</span>{% endif %}
+              {% if not u.is_active %}<span class="badge badge-light text-dark ms-1">Nonaktif</span>{% endif %}
+            </td>
+            <td>{{ u.get_full_name|default:"-" }}{% if u.email %}<div class="f-12 text-muted">{{ u.email }}</div>{% endif %}</td>
+            <td>
+              {% for g in u.groups.all %}<span class="badge badge-light text-dark me-1 mb-1">{{ g.name }}</span>{% empty %}<span class="text-muted f-12">Belum ada role</span>{% endfor %}
+            </td>
+            <td class="text-nowrap f-12">{{ u.last_login|date:"d M Y H:i"|default:"-" }}</td>
+            <td class="text-end"><a class="btn btn-outline-primary btn-xs" href="{% url 'pengaturan:user_roles' u.pk %}">Atur role</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% include "pengaturan/partials/pagination.html" %}
+    {% else %}
+    <div class="empty-state"><i data-feather="users"></i><p class="mt-2 mb-0">Tidak ada pengguna yang cocok.</p></div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

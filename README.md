@@ -34,8 +34,11 @@ Download https://download.osgeo.org/osgeo4w/v2/osgeo4w-setup.exe, pilih Express 
 docker compose up -d
 .\.venv\Scripts\Activate.ps1
 python manage.py migrate
+python manage.py migrate --database=log
 python manage.py createsuperuser
 ```
+
+Ada dua database: `besentry` (data utama) dan `besentry_log` (riwayat perubahan). Volume Docker baru membuat `besentry_log` otomatis. Untuk volume lama, buat sekali dengan `docker compose exec db createdb -U besentry besentry_log`.
 
 ## Menjalankan
 
@@ -64,6 +67,82 @@ Peta (MapLibre) mengambil bulan aktif dari `GET /api/orthophoto/current/` (`tile
 Tanpa antrean (untuk tes): `docker compose exec web python manage.py publish_orthophoto <file> --bulan 2026-11`.
 
 Setelah mengubah kode di `orthophoto/`, restart worker: `docker compose restart worker`.
+
+## Login (BEATS + SID)
+
+Pengguna masuk dengan **SID dan password BEATS**. Sesi, role, dan hak akses tetap disimpan di database BeSentry (`core/auth.py`):
+
+1. Password dicek ke API login BEATS (`BEATS_LOGIN_URL`).
+2. Jika benar, akun lokal dibuat/diperbarui (username = SID, nama, email) dan profil `core.Karyawan` diisi dari API SID: perusahaan, departemen, jabatan, site, status. Detail diambil ulang paling cepat tiap `SID_DETAIL_MAX_AGE_HOURS` (24 jam).
+3. Karyawan dengan status SID selain `AKTIF` tidak bisa login dan akunnya dinonaktifkan.
+
+| Kondisi | Hasil |
+|---|---|
+| Akun lokal bukan karyawan (admin, mitra) | Dicek dengan password lokal saja; **password-nya tidak pernah dikirim ke BEATS** |
+| BEATS menolak password karyawan | Ditolak, password lokal lama tidak berlaku |
+| BEATS tidak bisa diakses | Boleh login dengan password dari login sukses terakhir (`BEATS_OFFLINE_FALLBACK=True`); set `False` untuk menolak |
+| Akun dinonaktifkan admin | Ditolak; login BEATS tidak mengaktifkannya kembali |
+
+Isi `SID_API_KEY` di `.env` (header `x-api-key` API SID). Data pribadi yang tidak dibutuhkan (KTP, tanggal lahir, RFID, alamat) tidak disimpan.
+
+**Sinkron massal** perusahaan dan karyawan (jalankan terjadwal, mis. tiap malam):
+
+```powershell
+python manage.py sync_karyawan                    # semua perusahaan + karyawan perusahaan yang dipakai BeSentry
+python manage.py sync_karyawan --perusahaan 5194  # karyawan satu perusahaan (companyId SID)
+python manage.py sync_karyawan --semua            # karyawan semua perusahaan (bisa puluhan ribu)
+```
+
+Perusahaan SID dicocokkan ke `Perusahaan` yang sudah ada (dari data CCTV) lewat nama, lalu ditautkan dengan `sid_id`. Karyawan yang tidak lagi `AKTIF` di SID langsung tidak bisa login.
+
+## CCTV Database
+
+`/cctv/database/` menggantikan spreadsheet CCTV per site. Semua site ada di satu tabel.
+
+**Hak akses per site + perusahaan** (`cctv/access.py`):
+
+| Siapa | Melihat | Tambah/ubah | Hapus | IP & password |
+|---|---|---|---|---|
+| Superuser, `admin-hazard-motion` | Semua | Semua | Ya | Superuser saja |
+| Role dengan cakupan, mis. *CCTV BMO 2 - PT Pamapersada Nusantara* | Hanya cakupannya | Jika cakupan *Boleh tambah/ubah* | Tidak | Jika juga punya role IT |
+| `hazard-motion-it-pama`, `hazard-motion-it-mtl` | Semua (cakupan bawaan migrasi, bisa dipersempit) | Ya | Tidak | Ya, dalam cakupannya |
+| User tanpa cakupan | Menu tidak tampil, halaman 403 | | | |
+
+Diatur di menu **Pengaturan** (khusus superuser dan `admin-hazard-motion`):
+
+- **Role & Akses** (`/pengaturan/role/`): buat, ubah, atau hapus role dan cakupan CCTV-nya, serta buat role otomatis per site + perusahaan. Role bawaan sistem tidak bisa diganti nama atau dihapus.
+- **Pengguna** (`/pengaturan/pengguna/`): cari pengguna, lalu centang role-nya. Admin tidak bisa melepas role admin dari akunnya sendiri.
+
+Satu baris cakupan = satu site + perusahaan. Site atau perusahaan kosong berarti semua. Satu role boleh punya beberapa baris; user boleh punya beberapa role. CCTV di luar cakupan menjawab 404 (keberadaannya tidak terlihat).
+
+Role per pasangan site + perusahaan juga bisa dibuat dari terminal (tambah `--bisa-ubah` jika role boleh mengubah):
+
+```powershell
+python manage.py buat_role_cctv
+```
+
+| Model | Isi |
+|---|---|
+| `core.Site`, `core.Perusahaan` | Master site dan perusahaan, dipakai semua modul |
+| `core.Lokasi`, `core.DetailLokasi` | Master lokasi. `id` = ID dari sistem lokasi (mis. `1172174953`) |
+| `cctv.ControlRoom` | Control room per site |
+| `cctv.Cctv` | Satu baris per kamera. Posisi disimpan sebagai `PointField` |
+| `cctv.CctvSpec` | 1:1, spesifikasi perangkat dan pemasangan (brand, model, radius, tinggi, tilt, azimuth) |
+| `cctv.CctvAkses` | 1:1, NVR/IP/link/username/password. Hanya role IT; password terenkripsi |
+| `cctv.CctvCoverage` | Polygon coverage per CCTV per minggu |
+
+**Riwayat.** Setiap perubahan `Cctv`, `CctvSpec`, dan `CctvAkses` dicatat oleh django-simple-history di database `log` (app `cctv_log`, diarahkan oleh `config/db_router.py`), lengkap dengan user dan waktunya. Password tidak ikut dicatat. User disimpan sebagai id biasa (bukan FK) karena tabelnya ada di database lain.
+
+**Password** dienkripsi dengan `FIELD_ENCRYPTION_KEY` di `.env`. **Backup kunci ini**: tanpa kunci, password yang tersimpan tidak bisa dibaca lagi. Password tidak pernah ikut di HTML; tombol *Tampilkan* mengambilnya satu per satu.
+
+**Import dari spreadsheet.** Download Google Sheets sebagai `.xlsx` (File > Download > Microsoft Excel), lalu:
+
+```powershell
+python manage.py import_cctv cctv.xlsx                  # semua tab site
+python manage.py import_cctv cctv.xlsx --sheet "BC LMO"  # satu tab
+```
+
+Tab dikenali dari headernya (`No. CCTV`, `Fungsi CCTV`, `Kondisi`); tab ringkasan seperti `List CCTV` dan `BUMA-Old` dilewati. Nilai dinormalisasi (`FIX`/`FIXED`, `Mobile VIew`, spasi ganda, merek). Nilai yang tidak dikenal dikosongkan dan dilaporkan. Import bisa diulang: `No. CCTV` yang sudah ada diperbarui, dan baris yang tidak berubah tidak menambah riwayat.
 
 ## Struktur UI (template Viho)
 

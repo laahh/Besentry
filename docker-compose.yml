@@ -10,6 +10,7 @@ services:
       - "5433:5432"   # 5432 dipakai PostgreSQL 18 lokal Windows
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./docker/initdb/01-log-db.sql:/docker-entrypoint-initdb.d/20-log-db.sql:ro   # buat besentry_log (volume baru saja)
 
   redis:
     image: redis:7-alpine
@@ -20,11 +21,12 @@ services:
   web:
     build: .
     container_name: besentry_web
-    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    command: sh -c "python manage.py migrate && python manage.py migrate --database=log && python manage.py runserver 0.0.0.0:8000"
     env_file: .env
     environment:
       # Di dalam jaringan compose, pakai nama service, bukan localhost
       DATABASE_URL: postgis://besentry:besentry_dev@db:5432/besentry
+      LOG_DATABASE_URL: postgis://besentry:besentry_dev@db:5432/besentry_log
       REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
@@ -42,6 +44,7 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgis://besentry:besentry_dev@db:5432/besentry
+      LOG_DATABASE_URL: postgis://besentry:besentry_dev@db:5432/besentry_log
       REDIS_URL: redis://redis:6379/0
       TITILER_INTERNAL_URL: http://titiler:8000
     volumes:

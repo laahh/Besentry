@@ -6,6 +6,7 @@ Add or reorder menu entries here; the template only renders what build_menu() re
 from dataclasses import dataclass
 
 from django.urls import reverse
+from django.utils.module_loading import import_string
 
 from . import roles
 from .pages import PAGES_BY_NAME
@@ -19,6 +20,7 @@ class MenuItem:
     url_name: str = ''   # or a real Django URL name
     groups: tuple = ()
     children: tuple = ()
+    check: str = ''      # dotted path to a function(user) -> bool, for access that is not a plain role
 
     @property
     def required_groups(self):
@@ -45,7 +47,8 @@ MAIN_MENU = (
     )),
     MenuSection('Kesiapan Alat', (
         MenuItem('CCTV Management', 'camera', children=(
-            MenuItem('CCTV Database', page='cctv-database'),
+            # Visible to admins and to any role with a CCTV site/perusahaan scope.
+            MenuItem('CCTV Database', url_name='cctv:index', check='cctv.access.can_open'),
             MenuItem('CCTV PJA Dedicated', page='cctv-pja-dedicated'),
             MenuItem('CCTV Coverage', page='cctv-coverage'),
             MenuItem('Pengawas Control Room', page='cctv-control-room'),
@@ -96,6 +99,10 @@ MAIN_MENU = (
         MenuItem('Risk Intervention', 'shield', page='isc-risk-intervention'),
         MenuItem('Rekap Post-Event', 'file-text', page='isc-post-event'),
     )),
+    MenuSection('Pengaturan', (
+        MenuItem('Role & Akses', 'user-check', url_name='pengaturan:role_list', groups=(roles.ADMIN_HAZARD_MOTION,)),
+        MenuItem('Pengguna', 'users', url_name='pengaturan:user_list', groups=(roles.ADMIN_HAZARD_MOTION,)),
+    )),
     MenuSection('Sistem', (
         MenuItem('Zona', 'layers', url_name='admin:core_zona_changelist'),
         MenuItem('Admin', 'settings', url_name='admin:index'),
@@ -115,6 +122,8 @@ MITRA_PAGES = frozenset(item.page for section in MITRA_MENU for item in section.
 
 def _render_item(item, user, group_names):
     if not roles.has_any_role(user, group_names, item.required_groups):
+        return None
+    if item.check and not import_string(item.check)(user):
         return None
     children = [
         rendered for child in item.children

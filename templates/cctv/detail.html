@@ -1,0 +1,198 @@
+{% extends "layout/base.html" %}
+{% load static %}
+
+{% block title %}{{ cctv.no_cctv }}{% endblock %}
+{% block page_title %}{{ cctv.no_cctv }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item">CCTV Management</li>
+<li class="breadcrumb-item"><a href="{% url 'cctv:index' %}">CCTV Database</a></li>
+<li class="breadcrumb-item active">{{ cctv.no_cctv }}</li>
+{% endblock %}
+{% block page_actions %}
+{% if can_edit %}<a class="btn btn-primary btn-sm" href="{% url 'cctv:update' cctv.pk %}"><i data-feather="edit" class="me-1"></i>Ubah</a>{% endif %}
+{% if can_delete %}
+<form method="post" action="{% url 'cctv:delete' cctv.pk %}" class="d-inline" onsubmit="return confirm('Hapus CCTV {{ cctv.no_cctv|escapejs }}? Riwayatnya tetap tersimpan.');">
+  {% csrf_token %}
+  <button class="btn btn-outline-danger btn-sm" type="submit"><i data-feather="trash-2" class="me-1"></i>Hapus</button>
+</form>
+{% endif %}
+{% endblock %}
+{% block css %}{% if cctv.posisi %}{% include "layout/maplibre.html" %}{% endif %}{% endblock %}
+
+{% block content %}
+{% include "partials/messages.html" %}
+
+<div class="row">
+  <!-- Identitas -->
+  <div class="col-xl-6">
+    <div class="card">
+      <div class="card-header pb-0 d-flex justify-content-between align-items-center">
+        <h5>{{ cctv.nama }}</h5>
+        <div>
+          <span class="badge badge-{{ cctv.status_badge }}">{{ cctv.get_status_display }}</span>
+          <span class="badge badge-{{ cctv.kondisi_badge }}">{{ cctv.get_kondisi_display }}</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <table class="table info-table mb-0">
+          <tbody>
+            <tr><td>Site</td><td>{{ cctv.site.kode }}</td></tr>
+            <tr><td>Perusahaan</td><td>{{ cctv.perusahaan.nama }}</td></tr>
+            <tr><td>Kategori</td><td>{{ cctv.get_kategori_display|default:"-" }}</td></tr>
+            <tr><td>Fungsi</td><td>{{ cctv.get_fungsi_display|default:"-" }}</td></tr>
+            <tr><td>Bentuk instalasi</td><td>{{ cctv.get_bentuk_instalasi_display|default:"-" }}</td></tr>
+            <tr><td>Jenis</td><td>{{ cctv.get_jenis_display|default:"-" }}</td></tr>
+            <tr><td>Control room</td><td>{{ cctv.control_room.nama|default:"-" }}</td></tr>
+            <tr><td>Connected / Mirrored</td><td>{{ cctv.connected|yesno:"Ya,Tidak" }} / {{ cctv.mirrored|yesno:"Ya,Tidak" }}</td></tr>
+            <tr><td>Fitur auto alert</td><td>{{ cctv.auto_alert|yesno:"Ya,Tidak" }}</td></tr>
+            <tr><td>Periode update</td><td>{{ cctv.periode_update|date:"F Y"|default:"-" }}</td></tr>
+            <tr><td>Verifikasi petugas OCR</td><td>{{ cctv.verifikasi_ocr|default:"-" }}</td></tr>
+            <tr><td>Keterangan</td><td>{{ cctv.keterangan|default:"-"|linebreaksbr }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lokasi -->
+  <div class="col-xl-6">
+    <div class="card">
+      <div class="card-header pb-0"><h5>Lokasi</h5></div>
+      <div class="card-body">
+        <table class="table info-table">
+          <tbody>
+            <tr><td>Lokasi pemasangan</td><td>{{ cctv.lokasi_pemasangan|default:"-" }}</td></tr>
+            <tr><td>Coverage lokasi</td><td>{% if cctv.lokasi %}{{ cctv.lokasi.nama }} <span class="f-12 text-muted">#{{ cctv.lokasi_id }}</span>{% else %}-{% endif %}</td></tr>
+            <tr><td>Coverage detail lokasi</td><td>{% if cctv.detail_lokasi %}{{ cctv.detail_lokasi.nama }} <span class="f-12 text-muted">#{{ cctv.detail_lokasi_id }}</span>{% else %}-{% endif %}</td></tr>
+            <tr><td>Kategori area</td><td>{{ cctv.get_kategori_area_display|default:"-" }}</td></tr>
+            <tr><td>Kategori aktivitas</td><td>{{ cctv.get_kategori_aktivitas_display|default:"-" }}</td></tr>
+            <tr><td>Koordinat</td><td>{% if cctv.posisi %}{{ cctv.posisi.x|floatformat:6 }}, {{ cctv.posisi.y|floatformat:6 }}{% else %}-{% endif %}</td></tr>
+          </tbody>
+        </table>
+        {% if cctv.posisi %}
+        <div class="peta-kecil" id="peta-cctv" data-lng="{{ cctv.posisi.x|stringformat:'f' }}" data-lat="{{ cctv.posisi.y|stringformat:'f' }}"></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row">
+  <!-- Spesifikasi -->
+  <div class="{% if can_akses %}col-xl-6{% else %}col-xl-12{% endif %}">
+    <div class="card">
+      <div class="card-header pb-0"><h5>Spesifikasi</h5></div>
+      <div class="card-body">
+        {% if spec %}
+        <table class="table info-table mb-0">
+          <tbody>
+            <tr><td>Brand</td><td>{{ spec.brand|default:"-" }}</td></tr>
+            <tr><td>Model / spesifikasi zoom</td><td>{{ spec.model|default:"-" }}</td></tr>
+            <tr><td>Radius pengawasan</td><td>{% if spec.radius_m is not None %}{{ spec.radius_m|floatformat:"-1" }} m{% else %}-{% endif %}</td></tr>
+            <tr><td>Purpose</td><td>{{ spec.purpose|default:"-" }}</td></tr>
+            <tr><td>Tinggi pasang</td><td>{% if spec.tinggi_pasang_m is not None %}{{ spec.tinggi_pasang_m|floatformat:"-2" }} m{% else %}-{% endif %}</td></tr>
+            <tr><td>Tilt</td><td>{% if spec.tilt_deg is not None %}{{ spec.tilt_deg }}°{% else %}-{% endif %}</td></tr>
+            <tr><td>Azimuth</td><td>{% if spec.azimuth_deg is not None %}{{ spec.azimuth_deg }}°{% else %}-{% endif %}</td></tr>
+          </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted mb-0">Belum ada spesifikasi.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {% if can_akses %}
+  <!-- Akses (IT only) -->
+  <div class="col-xl-6">
+    <div class="card">
+      <div class="card-header pb-0"><h5><i data-feather="lock" class="me-1"></i>Akses</h5></div>
+      <div class="card-body">
+        {% if akses %}
+        <table class="table info-table mb-0">
+          <tbody>
+            <tr><td>NVR / channel</td><td>{{ akses.nvr|default:"-" }} / {{ akses.channel|default:"-" }}</td></tr>
+            <tr><td>IP CCTV</td><td>{{ akses.ip_cctv|default:"-" }}</td></tr>
+            <tr><td>IP NVR</td><td class="text-break">{{ akses.ip_nvr|default:"-" }}</td></tr>
+            <tr><td>Link akses</td><td class="text-break">{{ akses.link_akses|default:"-" }}</td></tr>
+            <tr><td>Username</td><td>{{ akses.username|default:"-" }}</td></tr>
+            <tr>
+              <td>Password</td>
+              <td>
+                {% if akses.ada_password %}
+                <code id="password-nilai" class="text-wrap" style="white-space: pre-wrap">••••••••</code>
+                <button class="btn btn-light btn-xs ms-2" type="button" id="password-lihat" data-url="{% url 'cctv:password' cctv.pk %}">Tampilkan</button>
+                {% csrf_token %}
+                {% else %}-{% endif %}
+              </td>
+            </tr>
+            <tr><td>Nama PRTG</td><td>{{ akses.prtg_name|default:"-" }}</td></tr>
+          </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted mb-0">Belum ada data akses.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Riwayat -->
+<div class="card">
+  <div class="card-header pb-0"><h5><i data-feather="clock" class="me-1"></i>Riwayat perubahan</h5></div>
+  <div class="card-body">
+    {% for entry in riwayat %}
+    <div class="riwayat-item py-2">
+      <div class="d-flex flex-wrap justify-content-between gap-2">
+        <div>
+          <span class="badge badge-{% if entry.type == 'Dibuat' %}success{% elif entry.type == 'Dihapus' %}danger{% else %}info{% endif %}">{{ entry.type }}</span>
+          {% if entry.section %}<span class="badge badge-light text-dark">{{ entry.section }}</span>{% endif %}
+          <span class="f-w-600 ms-1">{{ entry.user }}</span>
+          {% if entry.reason %}<span class="f-12 text-muted">· {{ entry.reason }}</span>{% endif %}
+        </div>
+        <span class="f-12 text-muted" title="{{ entry.date|date:'d M Y H:i:s' }}">{{ entry.date|date:"d M Y H:i" }}</span>
+      </div>
+      {% if entry.changes %}
+      <ul class="f-12 mb-0 mt-1 ps-3">
+        {% for change in entry.changes %}
+        <li><span class="text-muted">{{ change.field|capfirst }}:</span> {{ change.old }} → <strong>{{ change.new }}</strong></li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% empty %}
+    <p class="text-muted mb-0">Belum ada riwayat.</p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scriptcontent %}
+{% if cctv.posisi %}
+<script type="module">
+  import * as maplibregl from 'maplibre-gl';
+  import { createMap } from "{% static 'js/peta.js' %}";
+
+  const el = document.getElementById('peta-cctv');
+  const center = [Number(el.dataset.lng), Number(el.dataset.lat)];
+  const map = createMap(maplibregl, { container: el, center, zoom: 15 });
+  new maplibregl.Marker({ color: '#24695c' }).setLngLat(center).addTo(map);
+</script>
+{% endif %}
+{% if can_akses %}
+<script>
+  (() => {
+    const button = document.getElementById('password-lihat');
+    if (!button) return;
+    const csrf = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    button.addEventListener('click', async () => {
+      const response = await fetch(button.dataset.url, { method: 'POST', headers: { 'X-CSRFToken': csrf } });
+      if (!response.ok) return;
+      document.getElementById('password-nilai').textContent = (await response.json()).password;
+      button.remove();
+    });
+  })();
+</script>
+{% endif %}
+{% endblock %}

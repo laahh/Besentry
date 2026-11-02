@@ -1,0 +1,8 @@
+{# Choice filter. Params: name, label, options (value, label pairs), value, col #}
+<div class="{{ col }} col-md-3 col-6">
+  <label class="form-label f-12 mb-1" for="f-{{ name }}">{{ label }}</label>
+  <select class="form-select form-select-sm" name="{{ name }}" id="f-{{ name }}">
+    <option value="">Semua</option>
+    {% for option_value, option_label in options %}<option value="{{ option_value }}"{% if value == option_value %} selected{% endif %}>{{ option_label }}</option>{% endfor %}
+  </select>
+</div>

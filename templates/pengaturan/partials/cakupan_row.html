@@ -1,0 +1,15 @@
+{# One scope row of the formset. Param: f #}
+<tr>
+  <td>
+    {{ f.id }}
+    {{ f.site }}
+    {% for error in f.site.errors %}<div class="text-danger f-12">{{ error }}</div>{% endfor %}
+  </td>
+  <td>
+    {{ f.perusahaan }}
+    {% for error in f.perusahaan.errors %}<div class="text-danger f-12">{{ error }}</div>{% endfor %}
+    {% for error in f.non_field_errors %}<div class="text-danger f-12">{{ error }}</div>{% endfor %}
+  </td>
+  <td class="text-center"><div class="form-check form-switch d-inline-block">{{ f.bisa_ubah }}</div></td>
+  <td class="text-center"><div class="form-check d-inline-block">{{ f.DELETE }}</div></td>
+</tr>

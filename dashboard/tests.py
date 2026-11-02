@@ -26,7 +26,7 @@ class DashboardAccessTests(TestCase):
     def test_wrong_password_shows_error(self):
         get_user_model().objects.create_user('budi', password='rahasia-123')
         response = self.client.post(reverse('login'), {'username': 'budi', 'password': 'salah'})
-        self.assertContains(response, 'Username atau password salah')
+        self.assertContains(response, 'SID/username atau password salah')
 
 
 class DashboardContentTests(TestCase):

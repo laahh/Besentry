@@ -48,10 +48,14 @@ class MenuDefinitionTests(TestCase):
         self.assertEqual(used, {page.name for page in PAGES})
 
     def test_every_icon_exists_in_bundled_feather(self):
+        # An unknown icon stops feather from drawing every icon after it on the page.
+        # Icons are `name: '<svg...'` entries; a bare `name:` also matches plain JS such as `key:`.
         bundle = FEATHER_JS.read_text(encoding='utf-8')
-        icons = {item.icon for item in _walk(MAIN_MENU + MITRA_MENU) if item.icon} | {'settings'}
-        missing = [icon for icon in icons if not re.search(rf"['\"]?{re.escape(icon)}['\"]?\s*:", bundle)]
-        self.assertEqual(missing, [])
+        available = set(re.findall(r'''(?<![\w-])["']?([a-z][a-z0-9-]*)["']?:\s*['"]<''', bundle))
+        used = {item.icon for item in _walk(MAIN_MENU + MITRA_MENU) if item.icon}
+        for template in (settings.BASE_DIR / 'templates').rglob('*.html'):
+            used |= set(re.findall(r'data-feather="([a-z0-9-]+)"', template.read_text(encoding='utf-8')))
+        self.assertEqual(sorted(used - available), [])
 
     def test_sidebar_active_link_matches_itself(self):
         # sidebar-menu.js marks the first link whose href is contained in the pathname.

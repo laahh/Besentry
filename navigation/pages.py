@@ -24,7 +24,6 @@ class Page:
 
 PAGES = (
     # Kesiapan Alat
-    Page('cctv-database', 'cctv/database/', 'CCTV Database', 'CCTV Management', 'cctv-data.index', roles.CCTV_ADMINS),
     Page('cctv-pja-dedicated', 'cctv/pja-dedicated/', 'CCTV PJA Dedicated', 'CCTV Management',
          'cctv-data.pja-cctv-dedicated.index', roles.CCTV_ADMINS),
     Page('cctv-coverage', 'cctv/coverage/', 'CCTV Coverage', 'CCTV Management',

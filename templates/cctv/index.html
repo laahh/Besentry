@@ -1,0 +1,166 @@
+{% extends "layout/base.html" %}
+{% load static %}
+
+{% block title %}CCTV Database{% endblock %}
+{% block page_title %}CCTV Database{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item">CCTV Management</li>
+<li class="breadcrumb-item active">CCTV Database</li>
+{% endblock %}
+{% block page_actions %}
+<a class="btn btn-outline-primary btn-sm" href="{% url 'cctv:export' %}?{{ request.GET.urlencode }}"><i data-feather="download" class="me-1"></i>Export CSV</a>
+{% if scope.can_create %}<a class="btn btn-primary btn-sm" href="{% url 'cctv:create' %}"><i data-feather="plus" class="me-1"></i>Tambah CCTV</a>{% endif %}
+{% endblock %}
+{% block css %}{% include "layout/maplibre.html" %}{% endblock %}
+
+{% block content %}
+{% include "partials/messages.html" %}
+
+<div class="row">
+  {% include "dashboard/partials/stat_card.html" with color="primary" icon="camera" label="Total CCTV" value=stats.total %}
+  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="check-circle" label="Live View" value=stats.live %}
+  {% include "dashboard/partials/stat_card.html" with color="primary" icon="alert-triangle" label="Bermasalah" value=stats.bermasalah %}
+  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="map-pin" label="Tanpa koordinat" value=stats.tanpa_posisi %}
+</div>
+
+<!-- Filters -->
+<div class="card">
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end" id="cctv-filter">
+      <div class="col-lg-4 col-md-6">
+        <label class="form-label f-12 mb-1" for="f-q">Cari</label>
+        <input class="form-control form-control-sm" type="search" name="q" id="f-q" value="{{ selected.q|default:'' }}" placeholder="No. CCTV, nama, lokasi pemasangan">
+      </div>
+      <div class="col-lg-2 col-md-3 col-6">
+        <label class="form-label f-12 mb-1" for="f-site">Site</label>
+        <select class="form-select form-select-sm" name="site" id="f-site">
+          <option value="">Semua</option>
+          {% for site in sites %}<option value="{{ site.pk }}"{% if selected.site == site.pk|stringformat:"d" %} selected{% endif %}>{{ site.kode }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-lg-4 col-md-3 col-6">
+        <label class="form-label f-12 mb-1" for="f-perusahaan">Perusahaan</label>
+        <select class="form-select form-select-sm" name="perusahaan" id="f-perusahaan">
+          <option value="">Semua</option>
+          {% for p in perusahaan_list %}<option value="{{ p.pk }}"{% if selected.perusahaan == p.pk|stringformat:"d" %} selected{% endif %}>{{ p.nama }}</option>{% endfor %}
+        </select>
+      </div>
+      {% include "cctv/partials/filter_select.html" with name="kategori" label="Kategori" options=choices.kategori value=selected.kategori col="col-lg-2" %}
+      {% include "cctv/partials/filter_select.html" with name="jenis" label="Jenis" options=choices.jenis value=selected.jenis col="col-lg-2" %}
+      {% include "cctv/partials/filter_select.html" with name="status" label="Status" options=choices.status value=selected.status col="col-lg-2" %}
+      {% include "cctv/partials/filter_select.html" with name="kondisi" label="Kondisi" options=choices.kondisi value=selected.kondisi col="col-lg-2" %}
+      <div class="col-lg-4 col-12 d-flex gap-2">
+        <button class="btn btn-primary btn-sm" type="submit"><i data-feather="search" class="me-1"></i>Terapkan</button>
+        {% if selected %}<a class="btn btn-light btn-sm" href="{% url 'cctv:index' %}">Reset</a>{% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header pb-0">
+    <ul class="nav nav-tabs border-tab" role="tablist">
+      <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-tabel" role="tab"><i data-feather="list"></i>Tabel</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-peta" role="tab" id="tab-peta-link"><i data-feather="map"></i>Peta</a></li>
+    </ul>
+  </div>
+  <div class="card-body">
+    <div class="tab-content">
+      <div class="tab-pane fade show active" id="tab-tabel" role="tabpanel">
+        {% if page_obj.object_list %}
+        <div class="table-responsive">
+          <table class="table table-hover table-sm align-middle cctv-table">
+            <thead>
+              <tr>
+                <th>No. CCTV</th>
+                <th>Nama</th>
+                <th>Status</th>
+                <th>Kondisi</th>
+                <th>Site</th>
+                <th>Perusahaan</th>
+                <th>Jenis</th>
+                <th>Lokasi pemasangan</th>
+                <th>Control room</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for cctv in page_obj %}
+              <tr>
+                <td class="text-nowrap"><a class="f-w-600" href="{% url 'cctv:detail' cctv.pk %}">{{ cctv.no_cctv }}</a></td>
+                <td>{{ cctv.nama }}</td>
+                <td class="text-nowrap"><span class="badge badge-{{ cctv.status_badge }}">{{ cctv.get_status_display }}</span></td>
+                <td class="text-nowrap"><span class="badge badge-{{ cctv.kondisi_badge }}">{{ cctv.get_kondisi_display }}</span></td>
+                <td class="text-nowrap">{{ cctv.site.kode }}</td>
+                <td>{{ cctv.perusahaan.nama }}</td>
+                <td>{{ cctv.get_jenis_display|default:"-" }}</td>
+                <td>{{ cctv.lokasi_pemasangan|default:"-" }}</td>
+                <td>{{ cctv.control_room.nama|default:"-" }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
+          <span class="f-12">{{ page_obj.start_index }}–{{ page_obj.end_index }} dari {{ page_obj.paginator.count }} CCTV</span>
+          {% if page_obj.has_other_pages %}
+          <ul class="pagination pagination-primary mb-0">
+            {% if page_obj.has_previous %}
+            <li class="page-item"><a class="page-link" href="{% querystring page=1 %}">«</a></li>
+            <li class="page-item"><a class="page-link" href="{% querystring page=page_obj.previous_page_number %}">‹</a></li>
+            {% endif %}
+            <li class="page-item active"><span class="page-link">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span></li>
+            {% if page_obj.has_next %}
+            <li class="page-item"><a class="page-link" href="{% querystring page=page_obj.next_page_number %}">›</a></li>
+            <li class="page-item"><a class="page-link" href="{% querystring page=page_obj.paginator.num_pages %}">»</a></li>
+            {% endif %}
+          </ul>
+          {% endif %}
+        </div>
+        {% else %}
+        <div class="empty-state">
+          <i data-feather="camera"></i>
+          {% if selected %}
+          <p class="mt-2 mb-0">Tidak ada CCTV yang cocok dengan filter.</p>
+          {% else %}
+          <p class="mt-2 mb-2">Belum ada data CCTV.</p>
+          <p class="f-12 mb-0">Import dari spreadsheet: <code>python manage.py import_cctv file.xlsx</code></p>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="tab-pane fade" id="tab-peta" role="tabpanel">
+        <div class="peta" id="peta-cctv"
+             data-geojson="{% url 'cctv:geojson' %}?{{ request.GET.urlencode }}"
+             data-detail="{% url 'cctv:detail' 0 %}"></div>
+        <div class="d-flex flex-wrap gap-3 f-12 mt-2 peta-legenda">
+          {% for value, label in choices.kondisi %}<span><i class="titik titik-{{ value }}"></i>{{ label }}</span>{% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scriptcontent %}
+<script type="module">
+  import * as maplibregl from 'maplibre-gl';
+  import { createMap } from "{% static 'js/peta.js' %}";
+  import { addCctvLayer } from "{% static 'js/cctv-layer.js' %}";
+
+  // The map and its data load only when the tab is first opened.
+  const link = document.getElementById('tab-peta-link');
+  link.addEventListener('shown.bs.tab', () => {
+    const el = document.getElementById('peta-cctv');
+    const map = createMap(maplibregl, { container: el });
+    // style.load, not load: points appear without waiting for every basemap tile (slow site links).
+    map.once('style.load', () => addCctvLayer(maplibregl, map, { url: el.dataset.geojson, detailUrl: el.dataset.detail }));
+  }, { once: true });
+
+  // Selects filter immediately; the search box waits for Enter.
+  document.querySelectorAll('#cctv-filter select').forEach((select) => {
+    select.addEventListener('change', () => select.form.submit());
+  });
+</script>
+{% endblock %}

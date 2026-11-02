@@ -1,0 +1,81 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Role {{ target.username }}{% endblock %}
+{% block page_title %}Role {{ target.username }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item">Pengaturan</li>
+<li class="breadcrumb-item"><a href="{% url 'pengaturan:user_list' %}">Pengguna</a></li>
+<li class="breadcrumb-item active">{{ target.username }}</li>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-xl-4">
+    <div class="card">
+      <div class="card-header pb-0"><h5>{{ target.get_full_name|default:target.username }}</h5></div>
+      <div class="card-body">
+        <table class="table info-table mb-0">
+          <tbody>
+            <tr><td>Username</td><td>{{ target.username }}</td></tr>
+            <tr><td>Email</td><td>{{ target.email|default:"-" }}</td></tr>
+            <tr><td>Status</td><td>{% if target.is_active %}Aktif{% else %}Nonaktif{% endif %}{% if target.is_superuser %} · Superuser{% endif %}</td></tr>
+            <tr><td>Login terakhir</td><td>{{ target.last_login|date:"d M Y H:i"|default:"-" }}</td></tr>
+            {% if karyawan %}
+            <tr><td>Perusahaan</td><td>{{ karyawan.perusahaan|default:"-" }}</td></tr>
+            <tr><td>Jabatan</td><td>{{ karyawan.jabatan_struktural|default:"-" }}</td></tr>
+            <tr><td>Departemen</td><td>{{ karyawan.departemen|default:"-" }}</td></tr>
+            <tr><td>Site</td><td>{{ karyawan.site|default:"-" }}</td></tr>
+            <tr><td>Status SID</td><td>{{ karyawan.status|default:"-" }}</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+        <p class="f-12 text-muted mt-3 mb-0">{% if karyawan %}Akun BEATS, data dari SID (disinkron {{ karyawan.disinkron|date:"d M Y H:i"|default:"saat login" }}).{% else %}Akun lokal (bukan BEATS).{% endif %}</p>
+        {% if target.is_superuser %}<p class="f-12 text-muted mt-3 mb-0">Superuser selalu punya akses penuh, apa pun rolenya.</p>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-xl-8">
+    <form method="post" class="card">
+      {% csrf_token %}
+      <div class="card-header pb-0 d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <h5>Role</h5>
+        <input class="form-control form-control-sm w-auto" type="search" id="role-cari" placeholder="Saring role">
+      </div>
+      <div class="card-body">
+        {% for error in form.roles.errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+        <div class="row role-pilihan">
+          {% for checkbox in form.roles %}
+          <div class="col-md-6 role-item" data-nama="{{ checkbox.choice_label|lower }}">
+            <div class="form-check py-1">
+              <input class="form-check-input" type="checkbox" name="{{ checkbox.data.name }}" value="{{ checkbox.data.value }}" id="{{ checkbox.id_for_label }}"{% if checkbox.data.selected %} checked{% endif %}>
+              <label class="form-check-label" for="{{ checkbox.id_for_label }}">
+                {{ checkbox.choice_label }}
+                {% if checkbox.choice_label in system_roles %}<span class="badge badge-dark ms-1">Bawaan</span>{% endif %}
+              </label>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <p class="f-12 text-muted mt-2 mb-0">Cakupan CCTV tiap role diatur di <a href="{% url 'pengaturan:role_list' %}">Role & Akses</a>.</p>
+      </div>
+      <div class="card-footer d-flex gap-2">
+        <button class="btn btn-primary" type="submit">Simpan</button>
+        <a class="btn btn-light" href="{% url 'pengaturan:user_list' %}">Batal</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scriptcontent %}
+<script>
+  // Client-side filter for long role lists (one role per site + perusahaan).
+  document.getElementById('role-cari').addEventListener('input', (event) => {
+    const text = event.target.value.toLowerCase();
+    document.querySelectorAll('.role-item').forEach((item) => {
+      item.classList.toggle('d-none', !item.dataset.nama.includes(text));
+    });
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,110 @@
+{% extends "layout/base.html" %}
+
+{% block title %}{% if group %}{{ group.name }}{% else %}Tambah role{% endif %}{% endblock %}
+{% block page_title %}{% if group %}{{ group.name }}{% else %}Tambah role{% endif %}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item">Pengaturan</li>
+<li class="breadcrumb-item"><a href="{% url 'pengaturan:role_list' %}">Role & Akses</a></li>
+<li class="breadcrumb-item active">{% if group %}Ubah{% else %}Tambah{% endif %}</li>
+{% endblock %}
+{% block page_actions %}
+{% if group and not form.name.field.disabled %}
+<form method="post" action="{% url 'pengaturan:role_delete' group.pk %}" class="d-inline" onsubmit="return confirm('Hapus role {{ group.name|escapejs }}? Pengguna di role ini kehilangan aksesnya.');">
+  {% csrf_token %}
+  <button class="btn btn-outline-danger btn-sm" type="submit"><i data-feather="trash-2"></i>Hapus role</button>
+</form>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% include "partials/messages.html" %}
+
+<div class="row">
+  <div class="col-xl-8">
+    <form method="post" novalidate>
+      {% csrf_token %}
+      <div class="card">
+        <div class="card-header pb-0"><h5>Role</h5></div>
+        <div class="card-body row">
+          {% include "partials/field.html" with field=form.name col="col-12" %}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header pb-0 d-flex justify-content-between align-items-center">
+          <h5>Cakupan akses CCTV</h5>
+          {% if not is_full_access %}
+          <button class="btn btn-outline-primary btn-sm" type="button" id="cakupan-tambah"><i data-feather="plus"></i>Tambah cakupan</button>
+          {% endif %}
+        </div>
+        <div class="card-body">
+          {% if is_full_access %}
+          <p class="mb-0">Role ini melihat dan mengelola <strong>semua CCTV</strong>. Cakupan tidak diperlukan.</p>
+          {% else %}
+          <p class="f-12 text-muted">Satu baris = satu site + perusahaan yang boleh dilihat role ini. Pilih <em>Semua</em> untuk tidak membatasi.</p>
+          {{ formset.management_form }}
+          {% for error in formset.non_form_errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+          <div class="table-responsive">
+            <table class="table align-middle mb-0">
+              <thead>
+                <tr><th>Site</th><th>Perusahaan</th><th class="text-center">Boleh tambah/ubah</th><th class="text-center">Hapus</th></tr>
+              </thead>
+              <tbody id="cakupan-rows">
+                {% for f in formset %}{% include "pengaturan/partials/cakupan_row.html" %}{% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <p class="f-12 text-muted mt-2 mb-0{% if formset.forms %} d-none{% endif %}" id="cakupan-kosong">Belum ada cakupan: anggota role ini tidak bisa melihat CCTV.</p>
+          <template id="cakupan-template">{% with f=formset.empty_form %}{% include "pengaturan/partials/cakupan_row.html" %}{% endwith %}</template>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="d-flex gap-2 mb-4">
+        <button class="btn btn-primary" type="submit">Simpan</button>
+        <a class="btn btn-light" href="{% url 'pengaturan:role_list' %}">Batal</a>
+      </div>
+    </form>
+  </div>
+
+  <div class="col-xl-4">
+    <div class="card">
+      <div class="card-header pb-0"><h5><i data-feather="users"></i> Pengguna ({{ jumlah_member }})</h5></div>
+      <div class="card-body">
+        {% if group %}
+        {% for member in members %}
+        <div class="d-flex justify-content-between py-1">
+          <span>{{ member.get_full_name|default:member.username }} <span class="f-12 text-muted">{{ member.username }}</span></span>
+          <a class="f-12" href="{% url 'pengaturan:user_roles' member.pk %}">Atur</a>
+        </div>
+        {% empty %}
+        <p class="text-muted mb-2">Belum ada pengguna.</p>
+        {% endfor %}
+        {% if jumlah_member > members|length %}<p class="f-12 mt-2 mb-0"><a href="{% url 'pengaturan:user_list' %}?role={{ group.pk }}">Lihat semua</a></p>{% endif %}
+        <p class="f-12 text-muted mt-3 mb-0">Tambahkan pengguna ke role ini dari <a href="{% url 'pengaturan:user_list' %}">Pengaturan › Pengguna</a>.</p>
+        {% else %}
+        <p class="text-muted mb-0">Simpan role dulu, lalu tambahkan pengguna dari halaman Pengguna.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scriptcontent %}
+<script>
+  // New formset row from the empty form (__prefix__ -> next index).
+  (() => {
+    const button = document.getElementById('cakupan-tambah');
+    if (!button) return;
+    const rows = document.getElementById('cakupan-rows');
+    const total = document.getElementById('id_cakupan-TOTAL_FORMS');
+    const template = document.getElementById('cakupan-template').innerHTML;
+    button.addEventListener('click', () => {
+      rows.insertAdjacentHTML('beforeend', template.replaceAll('__prefix__', total.value));
+      total.value = Number(total.value) + 1;
+      document.getElementById('cakupan-kosong').classList.add('d-none');
+    });
+  })();
+</script>
+{% endblock %}

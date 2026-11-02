@@ -55,10 +55,14 @@ INSTALLED_APPS = [
     'rest_framework_gis',
     'channels',
     'django_rq',
+    'simple_history',
     'core',
     'dashboard',
     'navigation',
     'orthophoto',
+    'cctv',
+    'cctv_log',
+    'pengaturan',
 ]
 
 MIDDLEWARE = [
@@ -69,6 +73,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'simple_history.middleware.HistoryRequestMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -98,7 +103,14 @@ ASGI_APPLICATION = 'config.asgi.application'
 
 DATABASES = {
     'default': env.db('DATABASE_URL'),
+    # Change history (django-simple-history), kept apart from the main data.
+    # Migrate it with: python manage.py migrate --database=log
+    'log': env.db('LOG_DATABASE_URL'),
 }
+DATABASE_ROUTERS = ['config.db_router.LogRouter']
+
+# Fernet key for EncryptedTextField (CCTV passwords). Back it up: without it they cannot be read.
+FIELD_ENCRYPTION_KEY = env('FIELD_ENCRYPTION_KEY')
 
 
 # Realtime (Channels)
@@ -174,7 +186,20 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 
-# Authentication
+# Authentication: BEATS account first (see core/auth.py), then local accounts.
+
+AUTHENTICATION_BACKENDS = [
+    'core.auth.BeatsBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+BEATS_LOGIN_URL = env('BEATS_LOGIN_URL', default='https://hseautomation.beraucoal.co.id/beats/api/mobile/login')
+# Let employees sign in with the password of their last successful login while BEATS is down.
+BEATS_OFFLINE_FALLBACK = env.bool('BEATS_OFFLINE_FALLBACK', default=True)
+SID_API_URL = env('SID_API_URL', default='https://hseautomation.beraucoal.co.id/sid2')
+SID_API_KEY = env('SID_API_KEY', default='')
+SID_API_TIMEOUT = env.int('SID_API_TIMEOUT', default=10)
+# On login, the employee detail (position, site, status) is refetched when older than this.
+SID_DETAIL_MAX_AGE_HOURS = env.int('SID_DETAIL_MAX_AGE_HOURS', default=24)
 
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'dashboard:index'

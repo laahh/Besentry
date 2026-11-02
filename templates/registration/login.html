@@ -19,12 +19,12 @@
               {% csrf_token %}
               <div class="text-center mb-4"><span class="brand-text"><i data-feather="shield"></i><span>BeSentry</span></span></div>
               <h4>Masuk</h4>
-              <h6>Silakan masuk ke akun Anda.</h6>
+              <h6>Gunakan SID dan password BEATS Anda.</h6>
               {% if form.non_field_errors %}
-              <div class="alert alert-danger" role="alert">Username atau password salah.</div>
+              <div class="alert alert-danger" role="alert">SID/username atau password salah, atau akun tidak aktif.</div>
               {% endif %}
               <div class="form-group">
-                <label for="{{ form.username.id_for_label }}">Username</label>
+                <label for="{{ form.username.id_for_label }}">SID / Username</label>
                 <div class="input-group"><span class="input-group-text"><i class="icon-user"></i></span>
                   <input class="form-control" type="text" name="{{ form.username.html_name }}" id="{{ form.username.id_for_label }}"
                     value="{{ form.username.value|default:'' }}" required autofocus autocomplete="username">

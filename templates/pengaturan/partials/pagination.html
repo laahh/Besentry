@@ -1,0 +1,14 @@
+{% if page_obj.has_other_pages %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
+  <span class="f-12">{{ page_obj.start_index }}–{{ page_obj.end_index }} dari {{ page_obj.paginator.count }}</span>
+  <ul class="pagination pagination-primary mb-0">
+    {% if page_obj.has_previous %}
+    <li class="page-item"><a class="page-link" href="{% querystring page=page_obj.previous_page_number %}">‹</a></li>
+    {% endif %}
+    <li class="page-item active"><span class="page-link">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span></li>
+    {% if page_obj.has_next %}
+    <li class="page-item"><a class="page-link" href="{% querystring page=page_obj.next_page_number %}">›</a></li>
+    {% endif %}
+  </ul>
+</div>
+{% endif %}

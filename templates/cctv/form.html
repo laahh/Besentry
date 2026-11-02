@@ -1,0 +1,102 @@
+{% extends "layout/base.html" %}
+
+{% block title %}{% if cctv %}Ubah {{ cctv.no_cctv }}{% else %}Tambah CCTV{% endif %}{% endblock %}
+{% block page_title %}{% if cctv %}Ubah {{ cctv.no_cctv }}{% else %}Tambah CCTV{% endif %}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item">CCTV Management</li>
+<li class="breadcrumb-item"><a href="{% url 'cctv:index' %}">CCTV Database</a></li>
+<li class="breadcrumb-item active">{% if cctv %}Ubah{% else %}Tambah{% endif %}</li>
+{% endblock %}
+
+{% block content %}
+<form method="post" novalidate>
+  {% csrf_token %}
+  {% for error in form.non_field_errors %}
+  <div class="alert alert-danger" role="alert">{{ error }}</div>
+  {% endfor %}
+
+  <div class="card">
+    <div class="card-header pb-0"><h5>Identitas</h5></div>
+    <div class="card-body row">
+      {% include "partials/field.html" with field=form.no_cctv col="col-md-4" %}
+      {% include "partials/field.html" with field=form.nama col="col-md-8" %}
+      {% include "partials/field.html" with field=form.site col="col-md-4" %}
+      {% include "partials/field.html" with field=form.perusahaan col="col-md-8" %}
+      {% include "partials/field.html" with field=form.kategori col="col-md-3" %}
+      {% include "partials/field.html" with field=form.fungsi col="col-md-3" %}
+      {% include "partials/field.html" with field=form.bentuk_instalasi col="col-md-3" %}
+      {% include "partials/field.html" with field=form.jenis col="col-md-3" %}
+      {% include "partials/field.html" with field=form.status col="col-md-3" %}
+      {% include "partials/field.html" with field=form.kondisi col="col-md-3" %}
+      {% include "partials/field.html" with field=form.control_room col="col-md-6" %}
+      {% include "partials/field.html" with field=form.connected col="col-md-2 col-4" %}
+      {% include "partials/field.html" with field=form.mirrored col="col-md-2 col-4" %}
+      {% include "partials/field.html" with field=form.auto_alert col="col-md-2 col-4" %}
+      {% include "partials/field.html" with field=form.periode_update col="col-md-3" %}
+      {% include "partials/field.html" with field=form.verifikasi_ocr col="col-md-3" %}
+      {% include "partials/field.html" with field=form.keterangan col="col-12" %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header pb-0"><h5>Lokasi</h5></div>
+    <div class="card-body row">
+      {% include "partials/field.html" with field=form.lokasi_pemasangan col="col-md-12" %}
+      {% include "partials/field.html" with field=form.lokasi %}
+      {% include "partials/field.html" with field=form.detail_lokasi %}
+      {% include "partials/field.html" with field=form.kategori_area col="col-md-3" %}
+      {% include "partials/field.html" with field=form.kategori_aktivitas col="col-md-3" %}
+      {% include "partials/field.html" with field=form.longitude col="col-md-3" %}
+      {% include "partials/field.html" with field=form.latitude col="col-md-3" %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header pb-0"><h5>Spesifikasi</h5></div>
+    <div class="card-body row">
+      {% for field in spec_form %}
+      {% include "partials/field.html" with field=field col="col-md-3" %}
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if akses_form %}
+  <div class="card">
+    <div class="card-header pb-0"><h5><i data-feather="lock" class="me-1"></i>Akses</h5></div>
+    <div class="card-body row">
+      {% for field in akses_form %}
+      {% if field.name == 'hapus_password' %}
+      {% if ada_password %}{% include "partials/field.html" with field=field col="col-md-3" %}{% endif %}
+      {% else %}
+      {% include "partials/field.html" with field=field col="col-md-3" %}
+      {% endif %}
+      {% endfor %}
+      {% if ada_password %}<p class="f-12 text-muted mb-0">Password sudah tersimpan (terenkripsi).</p>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="d-flex gap-2 mb-4">
+    <button class="btn btn-primary" type="submit">Simpan</button>
+    <a class="btn btn-light" href="{% if cctv %}{% url 'cctv:detail' cctv.pk %}{% else %}{% url 'cctv:index' %}{% endif %}">Batal</a>
+  </div>
+</form>
+{% endblock %}
+
+{% block scriptcontent %}
+<script>
+  // Reload the detail lokasi options for the chosen lokasi.
+  (() => {
+    const lokasi = document.getElementById('{{ form.lokasi.id_for_label }}');
+    const detail = document.getElementById('{{ form.detail_lokasi.id_for_label }}');
+    const url = "{% url 'cctv:detail_lokasi_options' %}";
+    lokasi.addEventListener('change', async () => {
+      detail.replaceChildren(new Option('---------', ''));
+      if (!lokasi.value) return;
+      const response = await fetch(`${url}?lokasi=${encodeURIComponent(lokasi.value)}`);
+      if (!response.ok) return;
+      (await response.json()).options.forEach((o) => detail.add(new Option(o.nama, o.id)));
+    });
+  })();
+</script>
+{% endblock %}
