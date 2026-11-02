@@ -54,6 +54,7 @@ def _detail_values(detail):
         'npk': _text(employee.get('employeeIdNumber'), 30),
         'nama': _text(employee.get('name'), 150),
         'email': _text(employee.get('email'), 150).lower(),
+        'no_hp': _text(employee.get('phone'), 30),
         'perusahaan': perusahaan_for(company.get('id'), company.get('name')),
         'departemen': _text(_name(employee.get('department')), 150),
         'jabatan_struktural': _text(_name(employee.get('structuralPosition')), 150),
@@ -104,6 +105,7 @@ def login_user(account, password):
         karyawan.user = user
         karyawan.nama = nama or karyawan.nama or sid
         karyawan.email = email or karyawan.email
+        karyawan.no_hp = _text(account.get('selular'), 30) or karyawan.no_hp
         karyawan.employee_id = karyawan.employee_id or _int(account.get('idKaryawan'))
         perusahaan = perusahaan_for(_int(account.get('idPerusahaan')), account.get('namaPerusahaan'))
         karyawan.perusahaan = perusahaan or karyawan.perusahaan
@@ -121,6 +123,32 @@ def _int(value):
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def karyawan_by_sid(sid):
+    """The employee for a SID, refreshed from the SID detail API (which also has the phone number).
+
+    Falls back to the synced row when the API is unreachable. None when SID knows no such employee.
+    """
+    sid = _text(sid, 20).upper()
+    if not sid:
+        return None
+    local = Karyawan.objects.filter(sid__iexact=sid).select_related('perusahaan').first()
+    if not settings.SID_API_KEY:
+        return local
+    try:
+        detail = sid_api.employee_detail(sid)
+    except sid_api.ApiUnavailable:
+        return local
+    if not detail or not (detail.get('employee') or {}).get('sidCode'):
+        return local
+    karyawan = local or Karyawan(sid=detail['employee']['sidCode'])
+    for name, value in _detail_values(detail).items():
+        if value not in ('', None):
+            setattr(karyawan, name, value)
+    karyawan.disinkron = timezone.now()
+    karyawan.save()
+    return karyawan
 
 
 # Bulk sync (python manage.py sync_karyawan)

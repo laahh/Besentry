@@ -154,6 +154,22 @@ class ImportTests(TestCase):
         latest = Cctv.history.filter(no_cctv='LMO-BC-0001').latest('history_date')
         self.assertEqual((latest.kondisi, latest.history_change_reason), ('breakdown', importer.CHANGE_REASON))
 
+    def test_site_spacing_and_new_values_from_the_real_sheet(self):
+        row = BC_ROW.copy()
+        row[0] = 'BMO1'
+        row[BC_HEADERS.index('Jenis')] = 'PTZ & FIXED'
+        row[BC_HEADERS.index('Status')] = 'Post Event'
+        other = BC_ROW.copy()
+        other[0], other[3] = 'BMO 1', 'BMO1-BC-0002'
+        other[BC_HEADERS.index('Jenis')] = 'Portabel'
+        other[BC_HEADERS.index('Status')] = 'Non Aktif'
+        report, _ = importer.import_workbook(workbook(('BC BMO 1', [BC_HEADERS, row, other])))
+        self.assertEqual(list(Site.objects.values_list('kode', flat=True)), ['BMO 1'])
+        first, second = Cctv.objects.get(no_cctv='LMO-BC-0001'), Cctv.objects.get(no_cctv='BMO1-BC-0002')
+        self.assertEqual((first.jenis, first.status), ('ptz_fixed', 'post_event'))
+        self.assertEqual((second.jenis, second.status), ('portable', 'offline'))
+        self.assertEqual(report.warnings, [])
+
     def test_unknown_choice_is_reported(self):
         row = BC_ROW.copy()
         row[BC_HEADERS.index('Jenis')] = 'RID'

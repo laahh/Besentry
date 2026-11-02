@@ -1,0 +1,45 @@
+{# Homography check (cctv.homography.analyse), stored on the request. Uses analisis, kalibrasi_kamera, p, can_calibrate. #}
+<div class="verif-analisis mb-3">
+  {% if analisis and analisis.persen_terlihat is not None %}
+  <div class="row g-2 align-items-stretch">
+    <div class="col-md-3 col-6">
+      <div class="verif-angka {% if analisis.persen_terlihat >= 90 %}baik{% elif analisis.persen_terlihat >= 60 %}sedang{% else %}buruk{% endif %}">
+        <span>{{ analisis.persen_terlihat|floatformat:0 }}%</span>
+        <small>coverage terlihat kamera</small>
+      </div>
+    </div>
+    <div class="col-md-3 col-6">
+      <div class="verif-angka {% if analisis.titik_terjauh_m <= analisis.jangkauan_m %}baik{% else %}buruk{% endif %}">
+        <span>{{ analisis.titik_terjauh_m|floatformat:0 }} m</span>
+        <small>titik terjauh (batas {{ analisis.jangkauan_m|floatformat:0 }} m)</small>
+      </div>
+    </div>
+    <div class="col-md-3 col-6">
+      <div class="verif-angka {% if analisis.rmse_m <= 3 %}baik{% elif analisis.rmse_m <= 8 %}sedang{% else %}buruk{% endif %}">
+        <span>±{{ analisis.rmse_m|floatformat:1 }} m</span>
+        <small>akurasi kalibrasi (RMSE)</small>
+      </div>
+    </div>
+    <div class="col-md-3 col-6">
+      <div class="verif-angka">
+        <span>{{ analisis.luas_terlihat_ha|floatformat:2 }}<em> / {{ analisis.luas_ha|floatformat:2 }} ha</em></span>
+        <small>luas terlihat / usulan</small>
+      </div>
+    </div>
+  </div>
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2 f-12">
+    <span class="text-muted">
+      {% if analisis.gcp_outlier %}<span class="text-danger">GCP {{ analisis.gcp_outlier|join:", " }} tidak cocok dan diabaikan; periksa titiknya.</span>{% endif %}
+      {% if analisis.persen_terlihat < 100 %}Bagian yang tidak terlihat berada di luar frame, di atas cakrawala, atau melewati jangkauan kamera.{% endif %}
+      Area abu-abu di peta = area pandang kamera.
+    </span>
+    {% if p.bukti %}<a href="{% url 'cctv:coverage_bukti' p.pk %}" target="_blank" rel="noopener">Lihat gambar bukti</a>{% endif %}
+  </div>
+  {% elif not p.geom %}
+  <div class="alert alert-light f-12 mb-0">Belum ada polygon usulan untuk dianalisis.</div>
+  {% elif kalibrasi_kamera %}
+  <div class="alert alert-light f-12 mb-0">Analisis belum tersedia. Muat ulang halaman, atau simpan ulang kalibrasi.</div>
+  {% else %}
+  <div class="alert alert-warning f-12 mb-0">Kamera ini belum dikalibrasi. {% if can_calibrate %}Pilih <strong>Kalibrasi GCP</strong>, pasangkan minimal 4 titik di foto dan peta, lalu <strong>Simpan kalibrasi</strong>.{% else %}Safety akan mengkalibrasinya saat verifikasi.{% endif %}</div>
+  {% endif %}
+</div>

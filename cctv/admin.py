@@ -2,7 +2,7 @@ from django.contrib.auth.admin import GroupAdmin
 from django.contrib.auth.models import Group
 from django.contrib.gis import admin
 
-from .models import CakupanCctv, Cctv, CctvCoverage, ControlRoom
+from .models import CakupanCctv, Cctv, CctvCoverage, ControlRoom, PengajuanCoverage, RiwayatPengajuan
 
 
 class CakupanCctvInline(admin.TabularInline):
@@ -51,3 +51,24 @@ class CctvCoverageAdmin(admin.GISModelAdmin):
     list_select_related = ('cctv',)
     raw_id_fields = ('cctv',)
     search_fields = ('cctv__no_cctv',)
+
+
+class RiwayatPengajuanInline(admin.TabularInline):
+    model = RiwayatPengajuan
+    extra = 0
+    can_delete = False
+    readonly_fields = ('waktu', 'aksi', 'user', 'catatan')
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PengajuanCoverage)
+class PengajuanCoverageAdmin(admin.GISModelAdmin):
+    # Reviewing happens on /cctv/coverage/; admin is for inspection only.
+    list_display = ('cctv', 'jenis', 'status', 'versi', 'diajukan_oleh', 'diubah')
+    list_filter = ('status', 'jenis')
+    list_select_related = ('cctv', 'diajukan_oleh')
+    raw_id_fields = ('cctv', 'orthophoto', 'diajukan_oleh', 'digitasi_oleh')
+    search_fields = ('cctv__no_cctv',)
+    inlines = [RiwayatPengajuanInline]

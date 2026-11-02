@@ -86,7 +86,6 @@ class MenuVisibilityTests(TestCase):
     def test_regular_user_hides_admin_only_entries(self):
         titles = _all_titles(build_menu(self._user()))
         self.assertIn('Pengawas Control Room', titles)
-        self.assertIn('Dashboard Readiness', titles)
         for hidden in ('CCTV Database', 'Spasial', 'WMS', 'Zona', 'Admin'):
             self.assertNotIn(hidden, titles)
         self.assertNotIn('Umum', _titles(build_menu(self._user())))
@@ -98,8 +97,14 @@ class MenuVisibilityTests(TestCase):
 
     def test_admin_hazard_motion_sees_dashboard_and_spasial(self):
         titles = _all_titles(build_menu(self._user(roles.ADMIN_HAZARD_MOTION)))
-        for visible in ('Dashboard', 'Spasial', 'Boundary Monitoring', 'CCTV Coverage'):
+        for visible in ('Dashboard', 'Spasial', 'Orthophoto', 'Verifikasi Coverage'):
             self.assertIn(visible, titles)
+
+    def test_hidden_items_are_not_shown_even_to_superusers(self):
+        titles = _all_titles(build_menu(self.User.objects.create_superuser('root', password='x')))
+        for hidden in ('WMS', 'Area Kerja + Area CCTV', 'Boundary Monitoring'):
+            self.assertNotIn(hidden, titles)
+        self.assertIn('Orthophoto', titles)
 
     def test_mitra_only_user_sees_only_mitra_menu(self):
         menu = build_menu(self._user(roles.MITRA_ONLY))
@@ -116,15 +121,27 @@ class PlaceholderPageTests(TestCase):
         self.client.force_login(self.user)
 
     def test_open_page_renders_with_legacy_route(self):
-        response = self.client.get(reverse('navigation:page', kwargs={'name': 'dashboard-readiness'}))
-        self.assertEqual(response.request['PATH_INFO'], '/maps/')
-        self.assertContains(response, 'Dashboard Readiness')
-        self.assertContains(response, "route('maps.map')")
+        response = self.client.get(reverse('navigation:page', kwargs={'name': 'cctv-control-room'}))
+        self.assertEqual(response.request['PATH_INFO'], '/cctv/pengawas-control-room/')
+        self.assertContains(response, 'Pengawas Control Room')
+        self.assertContains(response, "route('cctv-data.control-room.index')")
 
     def test_sidebar_is_rendered_from_menu(self):
-        response = self.client.get(reverse('navigation:page', kwargs={'name': 'history-p2h'}))
-        self.assertContains(response, '<h6>Control Room</h6>', html=True)
-        self.assertContains(response, 'href="/smart-alert-maps/"')
+        response = self.client.get(reverse('navigation:page', kwargs={'name': 'cctv-control-room'}))
+        self.assertContains(response, '<h6>Kesiapan Alat</h6>', html=True)
+        self.assertContains(response, 'href="/cctv/pengawas-control-room/"')
+
+    def test_removed_menus_are_gone(self):
+        superuser = get_user_model().objects.create_superuser('root', password='x')
+        sections = _titles(build_menu(superuser))
+        for removed in ('Control Room', 'Log Alert & Intervensi', 'On Off CCTV', 'History P2H',
+                        'Health / BeWell', 'Besigma', 'ISC'):
+            self.assertNotIn(removed, sections)
+        for removed in ('DOP', 'DOP Safety GMO', 'HSECM Monitoring'):
+            self.assertNotIn(removed, _all_titles(build_menu(superuser)))
+        self.client.force_login(superuser)
+        for path in ('/maps/', '/dop/', '/isc/home/', '/history-p2h/'):
+            self.assertEqual(self.client.get(path).status_code, 404)
 
     def test_role_restricted_page_is_forbidden(self):
         response = self.client.get(reverse('navigation:page', kwargs={'name': 'spasial-wms'}))
@@ -133,11 +150,11 @@ class PlaceholderPageTests(TestCase):
     def test_mitra_only_user_cannot_open_other_pages(self):
         self.user.groups.add(Group.objects.get(name=roles.MITRA_ONLY))
         allowed = self.client.get(reverse('navigation:page', kwargs={'name': 'bewell-pvt'}))
-        blocked = self.client.get(reverse('navigation:page', kwargs={'name': 'dop'}))
+        blocked = self.client.get(reverse('navigation:page', kwargs={'name': 'cctv-control-room'}))
         self.assertEqual(allowed.status_code, 200)
         self.assertEqual(blocked.status_code, 403)
 
     def test_pages_require_login(self):
         self.client.logout()
-        response = self.client.get('/maps/')
-        self.assertRedirects(response, f"{reverse('login')}?next=/maps/")
+        response = self.client.get('/cctv/pengawas-control-room/')
+        self.assertRedirects(response, f"{reverse('login')}?next=/cctv/pengawas-control-room/")

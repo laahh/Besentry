@@ -1,0 +1,20 @@
+{# PIC form fields with the employee search. Uses form, and pic (on the edit page). #}
+{% for error in form.non_field_errors %}<div class="col-12"><div class="alert alert-danger">{{ error }}</div></div>{% endfor %}
+<div class="col-12 mb-3 position-relative">
+  <label class="form-label" for="pic-cari">{{ form.sid.label }} <span class="text-danger">*</span></label>
+  <input class="form-control" type="search" id="pic-cari" autocomplete="off"
+         placeholder="Ketik nama atau SID, mis. ABI atau S81UT"
+         value="{% if form.sid.value %}{{ form.sid.value }}{% endif %}"
+         data-url="{% url 'notifikasi:cari_karyawan' %}">
+  <input type="hidden" name="{{ form.sid.html_name }}" id="pic-sid" value="{{ form.sid.value|default:'' }}">
+  <div class="list-group pic-hasil d-none" id="pic-hasil"></div>
+  <div class="form-text">{{ form.sid.help_text }}</div>
+  {% for error in form.sid.errors %}<div class="text-danger f-12">{{ error }}</div>{% endfor %}
+  <div class="pic-terpilih mt-2{% if not pic.karyawan %} d-none{% endif %}" id="pic-terpilih">
+    {% if pic.karyawan %}<strong>{{ pic.karyawan.nama }}</strong> · {{ pic.karyawan.sid }}<div class="f-12 text-muted">{{ pic.karyawan.jabatan_struktural|default:"-" }} · {{ pic.karyawan.perusahaan|default:"-" }}</div>{% endif %}
+  </div>
+</div>
+{% include "partials/field.html" with field=form.no_wa col="col-12" %}
+{% include "partials/field.html" with field=form.email col="col-12" %}
+{% include "partials/field.html" with field=form.site col="col-12" %}
+{% include "partials/field.html" with field=form.aktif col="col-12" %}

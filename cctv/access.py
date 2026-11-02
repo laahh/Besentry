@@ -36,12 +36,12 @@ class Rule:
     def matches(self, site_id, perusahaan_id):
         return self.site_id in (None, site_id) and self.perusahaan_id in (None, perusahaan_id)
 
-    def q(self):
+    def q(self, prefix=''):
         lookups = {}
         if self.site_id is not None:
-            lookups['site_id'] = self.site_id
+            lookups[f'{prefix}site_id'] = self.site_id
         if self.perusahaan_id is not None:
-            lookups['perusahaan_id'] = self.perusahaan_id
+            lookups[f'{prefix}perusahaan_id'] = self.perusahaan_id
         return Q(**lookups)
 
 
@@ -50,10 +50,29 @@ class Scope:
     full: bool
     rules: tuple = ()
     can_see_akses: bool = False
+    # Coverage workflow: SGI digitises, Safety approves. Both work on every site's requests.
+    is_sgi: bool = False
+    is_safety: bool = False
 
     @property
     def can_open(self):
         return self.full or bool(self.rules)
+
+    @property
+    def can_digitize(self):
+        return self.full or self.is_sgi
+
+    @property
+    def sees_all_coverage(self):
+        return self.full or self.is_sgi or self.is_safety
+
+    def can_review(self, tahap):
+        """SGI review stage (requests IT drew themselves) or the Safety stage."""
+        if tahap == 'sgi':
+            return self.full or self.is_sgi
+        if tahap == 'safety':
+            return self.full or self.is_safety
+        return False
 
     @property
     def can_create(self):
@@ -66,7 +85,8 @@ class Scope:
     def _rules(self, edit):
         return [rule for rule in self.rules if rule.bisa_ubah or not edit]
 
-    def filter(self, queryset, edit=False):
+    def filter(self, queryset, edit=False, prefix=''):
+        """`prefix` reaches the CCTV through a relation, e.g. 'cctv__' for coverage requests."""
         if self.full:
             return queryset
         rules = self._rules(edit)
@@ -74,7 +94,7 @@ class Scope:
             return queryset.none()
         condition = Q()
         for rule in rules:
-            condition |= rule.q()
+            condition |= rule.q(prefix)
         return queryset.filter(condition)
 
     def allows(self, site_id, perusahaan_id, edit=False):
@@ -101,15 +121,19 @@ def get_scope(user):
         scope = Scope(full=False)
     else:
         group_names = roles.user_group_names(user)
-        can_see_akses = roles.has_any_role(user, group_names, AKSES_ROLES)
+        flags = {
+            'can_see_akses': roles.has_any_role(user, group_names, AKSES_ROLES),
+            'is_sgi': roles.SGI in group_names,
+            'is_safety': roles.SAFETY in group_names,
+        }
         if roles.has_any_role(user, group_names, FULL_ACCESS_ROLES):
-            scope = Scope(full=True, can_see_akses=can_see_akses)
+            scope = Scope(full=True, **flags)
         else:
             rules = tuple(
                 Rule(*row) for row in CakupanCctv.objects.filter(group__user=user)
                 .values_list('site_id', 'perusahaan_id', 'bisa_ubah').distinct()
             )
-            scope = Scope(full=False, rules=rules, can_see_akses=can_see_akses)
+            scope = Scope(full=False, rules=rules, **flags)
     user._cctv_scope = scope
     return scope
 
@@ -117,6 +141,17 @@ def get_scope(user):
 def can_open(user):
     """Menu check: show CCTV Database only to users who can see some CCTV."""
     return get_scope(user).can_open
+
+
+def can_open_coverage(user):
+    """Menu check for Verifikasi Coverage: CCTV scope, or the SGI / Safety roles."""
+    scope = get_scope(user)
+    return scope.can_open or scope.sees_all_coverage
+
+
+def can_digitize(user):
+    """Menu check for Spasial > Digitasi Coverage."""
+    return get_scope(user).can_digitize
 
 
 def role_name(site, perusahaan):

@@ -148,6 +148,37 @@ python manage.py buat_role_cctv
 
 **Password** dienkripsi dengan `FIELD_ENCRYPTION_KEY` di `.env`. **Backup kunci ini**: tanpa kunci, password yang tersimpan tidak bisa dibaca lagi. Password tidak pernah ikut di HTML; tombol *Tampilkan* mengambilnya satu per satu.
 
+**Verifikasi coverage** (`/cctv/coverage/`, menu *Verifikasi Coverage*). Perubahan polygon coverage CCTV (Baru / Dipindah / Dicabut) melewati dua tahap review sebelum aktif (`cctv/coverage.py`):
+
+1. Pengguna dengan cakupan *boleh ubah* mengajukan: pilih CCTV, lampirkan tangkapan layar, gambar polygon di peta (klik untuk titik, geser untuk mengubah, atau salin versi aktif).
+2. Sistem memvalidasi geometri: polygon valid, di wilayah Berau, maks. 1.000 ha, titik terjauh ≤ radius kamera × 1,5 (2 km jika radius kosong).
+3. **SGI** lalu **Safety** (`admin-hazard-motion`/superuser) mencentang semua checklist untuk menyetujui, atau mengembalikan dengan catatan wajib. Pengajuan yang dikembalikan direvisi lalu dikirim ulang.
+4. Setelah Safety menyetujui, polygon menjadi `CctvCoverage` minggu ini (versi aktif). Untuk *Dicabut*, coverage minggu ini disimpan kosong.
+
+**GeoPoint kamera** (panel di bawah perbandingan): menghubungkan tangkapan layar CCTV dengan peta lewat homografi (`static/js/homography.js`, `static/js/geopoint.js`).
+
+- *Kalibrasi GCP*: pilih GCP, klik titiknya di gambar CCTV, lalu titik yang sama di peta orthophoto. Minimal 4 GCP; dengan 5+ GCP tampil RMSE (meter) dan error per GCP. Disimpan per pengajuan (`PengajuanCoverage.kalibrasi`), oleh pengaju atau reviewer selama belum selesai.
+- *Titik*: klik permukaan tanah di gambar → pin + lat/lon di peta; klik peta → pin di gambar. Bisa disalin atau diekspor GeoJSON.
+- *Overlay*: polygon usulan (dan versi aktif) diproyeksikan ke gambar CCTV, sehingga SGI melihat apakah area yang diusulkan benar-benar terlihat kamera.
+
+Asumsinya permukaan tanah datar; di lereng atau beda elevasi besar akurasi menurun, jadi gunakan RMSE sebagai acuan.
+
+**Verifikasi dari foto CCTV (homography Python)**: `cctv/homography.py` (OpenCV + NumPy).
+
+- **Safety** mengkalibrasi kamera: pasangkan ≥ 4 GCP di tangkapan layar dan orthophoto, lalu *Simpan kalibrasi*. Server menghitung homography piksel → UTM 50N dengan RANSAC; GCP yang salah klik (> 3 m) dilaporkan sebagai outlier.
+- Kalibrasi disimpan **per kamera** (`KalibrasiKamera`, satu aktif per CCTV) dan dipakai ulang untuk pengajuan berikutnya; otomatis nonaktif saat CCTV dipindah. Kalibrasi ulang jika kamera diputar.
+- Analisis otomatis per pengajuan (`PengajuanCoverage.analisis`): **% coverage yang terlihat kamera** (bingkai foto diproyeksikan ke tanah, dipotong di cakrawala dan pada jangkauan = radius × 1,5), titik terjauh vs jangkauan, luas, RMSE. Dihitung ulang otomatis saat polygon berubah.
+- **Gambar bukti** (`PengajuanCoverage.bukti`): foto CCTV dengan coverage yang terlihat dan GCP digambar, disimpan sebagai lampiran verifikasi.
+- Tangkapan layar di-upload manual dari halaman verifikasi.
+
+Satu CCTV hanya boleh punya satu pengajuan terbuka. Tangkapan layar disimpan di `MEDIA_ROOT/coverage/` dan hanya bisa dibuka lewat aplikasi (dicek hak aksesnya), bukan lewat URL publik.
+
+**Notifikasi ke PIC SGI** (app `notifikasi`, menu *Pengaturan > PIC SGI*). Saat CCTV **ditambahkan** atau **lokasinya berubah** lewat form (site, lokasi, detail lokasi, lokasi pemasangan, atau koordinat bergeser ≥ 1 m), PIC SGI aktif untuk site itu (atau PIC "semua site") menerima WhatsApp lewat **Fonnte** dan email, berisi detail perubahan, link Google Maps, dan link ke CCTV. Import spreadsheet tidak memicu notifikasi.
+
+- Kredensial di `.env`: `FONNTE_TOKEN`, `MAIL_BACKUP_*` (SMTP), `SITE_URL` (dasar link di pesan).
+- Setiap pesan dicatat (`Notifikasi`: terkirim/gagal + alasannya). Dari halaman PIC SGI bisa *Tes kirim* dan *Kirim ulang*.
+- Default dikirim langsung setelah data tersimpan. Di produksi set `NOTIFIKASI_ASYNC=True` dan jalankan service `notifier` (`python manage.py rqworker notifikasi`), supaya penyimpanan tidak menunggu Fonnte/SMTP.
+
 **Import dari spreadsheet.** Download Google Sheets sebagai `.xlsx` (File > Download > Microsoft Excel), lalu:
 
 ```powershell

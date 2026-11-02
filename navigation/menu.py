@@ -21,6 +21,7 @@ class MenuItem:
     groups: tuple = ()
     children: tuple = ()
     check: str = ''      # dotted path to a function(user) -> bool, for access that is not a plain role
+    hidden: bool = False  # kept in the menu definition but not shown (e.g. not ready yet)
 
     @property
     def required_groups(self):
@@ -50,58 +51,24 @@ MAIN_MENU = (
             # Visible to admins and to any role with a CCTV site/perusahaan scope.
             MenuItem('CCTV Database', url_name='cctv:index', check='cctv.access.can_open'),
             MenuItem('CCTV PJA Dedicated', page='cctv-pja-dedicated'),
-            MenuItem('CCTV Coverage', page='cctv-coverage'),
             MenuItem('Pengawas Control Room', page='cctv-control-room'),
         )),
-        MenuItem('Spasial', 'crosshair', groups=(roles.ADMIN_HAZARD_MOTION,), children=(
-            MenuItem('WMS', page='spasial-wms'),
-            MenuItem('Area Kerja + Area CCTV', page='spasial-area-kerja'),
-            MenuItem('Boundary Monitoring', page='spasial-boundary-monitoring'),
+        # Order follows the work: CCTV data, then the spatial base (orthophoto), then verification.
+        MenuItem('Spasial', 'crosshair', groups=(roles.ADMIN_HAZARD_MOTION, roles.SGI), children=(
+            # SGI's queue: CCTV that IT added or moved, waiting for their coverage polygon.
+            MenuItem('Digitasi Coverage', url_name='cctv:digitasi_index', check='cctv.access.can_digitize'),
+            MenuItem('WMS', page='spasial-wms', hidden=True),
+            MenuItem('Area Kerja + Area CCTV', page='spasial-area-kerja', hidden=True),
+            MenuItem('Boundary Monitoring', page='spasial-boundary-monitoring', hidden=True),
             MenuItem('Orthophoto', url_name='orthophoto:publish', groups=(roles.ADMIN_HAZARD_MOTION,)),
         )),
-        MenuItem('DOP', 'file-text', page='dop'),
-        MenuItem('DOP Safety GMO', 'shield', page='dop-safety'),
-        MenuItem('HSECM Monitoring', 'activity', page='hsecm'),
-    )),
-    MenuSection('Control Room', (
-        MenuItem('Dashboard Readiness', 'map', page='dashboard-readiness'),
-        MenuItem('Smart Alert Maps', 'alert-triangle', page='smart-alert-maps'),
-        MenuItem('Tasklist Issue', 'bell', children=(
-            MenuItem('Task List Readiness', page='tasklist-readiness'),
-            MenuItem('Task List Operasi', page='tasklist-operasi'),
-            MenuItem('Alert Log Supervisory', page='supervisory-alert-log'),
-        )),
-    )),
-    # In Laravel both entries below point to supervisory-alert-log.index as well.
-    MenuSection('Log Alert & Intervensi', (
-        MenuItem('Alert & Intervensi', 'alert-circle', page='supervisory-alert-log'),
-        MenuItem('Task List', 'check-square', page='supervisory-alert-log'),
-    )),
-    MenuSection('On Off CCTV', (
-        MenuItem('On Off CCTV', 'power', page='cctv-on-off'),
-    )),
-    MenuSection('History P2H', (
-        MenuItem('History P2H', 'clipboard', page='history-p2h'),
-    )),
-    MenuSection('Health / BeWell', (
-        MenuItem('Evaluasi Olahraga', 'heart', children=(
-            MenuItem('Dashboard', page='bewell-ikhtisar'),
-            MenuItem('Mitra Kerja', page='bewell-mitra'),
-            MenuItem('Tren Aktivitas', page='bewell-aktivitas'),
-        )),
-    )),
-    MenuSection('Besigma', (
-        MenuItem('Tes Koneksi Jumphost', 'wifi', page='besigma-koneksi'),
-    )),
-    MenuSection('ISC', (
-        MenuItem('Home ISC', 'home', page='isc-home'),
-        MenuItem('Peta Boundary', 'map', page='isc-peta-boundary'),
-        MenuItem('Risk Intervention', 'shield', page='isc-risk-intervention'),
-        MenuItem('Rekap Post-Event', 'file-text', page='isc-post-event'),
+        MenuItem('Verifikasi Coverage', 'check-circle', url_name='cctv:coverage_index',
+                 check='cctv.access.can_open_coverage'),
     )),
     MenuSection('Pengaturan', (
         MenuItem('Role & Akses', 'user-check', url_name='pengaturan:role_list', groups=(roles.ADMIN_HAZARD_MOTION,)),
         MenuItem('Pengguna', 'users', url_name='pengaturan:user_list', groups=(roles.ADMIN_HAZARD_MOTION,)),
+        MenuItem('PIC SGI', 'bell', url_name='notifikasi:pic_list', groups=(roles.ADMIN_HAZARD_MOTION,)),
     )),
     MenuSection('Sistem', (
         MenuItem('Zona', 'layers', url_name='admin:core_zona_changelist'),
@@ -121,6 +88,8 @@ MITRA_PAGES = frozenset(item.page for section in MITRA_MENU for item in section.
 
 
 def _render_item(item, user, group_names):
+    if item.hidden:
+        return None
     if not roles.has_any_role(user, group_names, item.required_groups):
         return None
     if item.check and not import_string(item.check)(user):

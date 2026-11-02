@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     'cctv_log',
     'registrasi',
     'pengaturan',
+    'notifikasi',
 ]
 
 MIDDLEWARE = [
@@ -131,7 +132,38 @@ RQ_QUEUES = {
         'URL': env('REDIS_URL'),
         'DEFAULT_TIMEOUT': 6 * 60 * 60,  # converting a ~20 GB orthophoto can take hours
     },
+    # Its own queue, so messages never wait behind an hours-long orthophoto job.
+    # ASYNC=False sends right after saving (no worker needed, fine for local use); in production
+    # set NOTIFIKASI_ASYNC=True and run: python manage.py rqworker notifikasi
+    'notifikasi': {
+        'URL': env('REDIS_URL'),
+        'DEFAULT_TIMEOUT': 120,
+        'ASYNC': env.bool('NOTIFIKASI_ASYNC', default=False),
+    },
 }
+
+
+# Notifications to the SGI PICs: WhatsApp via Fonnte, email via SMTP
+
+FONNTE_TOKEN = env('FONNTE_TOKEN', default='')
+FONNTE_URL = env('FONNTE_URL', default='https://api.fonnte.com/send')
+NOTIFIKASI_TIMEOUT = env.int('NOTIFIKASI_TIMEOUT', default=15)
+# Base for links in messages (http://host:port, no trailing slash needed).
+SITE_URL = env('SITE_URL', default='http://127.0.0.1:8000')
+
+if env('MAIL_BACKUP_HOST', default=''):
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_HOST = env('MAIL_BACKUP_HOST')
+    EMAIL_PORT = env.int('MAIL_BACKUP_PORT', default=587)
+    EMAIL_HOST_USER = env('MAIL_BACKUP_USERNAME', default='')
+    EMAIL_HOST_PASSWORD = env('MAIL_BACKUP_PASSWORD', default='')
+    EMAIL_USE_TLS = env('MAIL_BACKUP_ENCRYPTION', default='tls').lower() == 'tls'
+    EMAIL_USE_SSL = env('MAIL_BACKUP_ENCRYPTION', default='').lower() == 'ssl'
+    EMAIL_TIMEOUT = NOTIFIKASI_TIMEOUT
+    DEFAULT_FROM_EMAIL = (f"{env('MAIL_BACKUP_FROM_NAME', default='BeSentry')} "
+                          f"<{env('MAIL_BACKUP_FROM_ADDRESS', default=EMAIL_HOST_USER)}>")
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'  # printed, not sent
 
 
 # Monthly orthophoto, served as tiles by TiTiler
@@ -185,6 +217,10 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Uploads (e.g. CCTV screenshots). Not served under a public URL: views stream them
+# after checking access (see cctv.coverage_views.tangkapan).
+MEDIA_ROOT = Path(env('MEDIA_ROOT', default=str(BASE_DIR / 'media')))
 
 
 # Authentication: BEATS account first (see core/auth.py), then local accounts.

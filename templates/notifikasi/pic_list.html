@@ -1,0 +1,106 @@
+{% extends "layout/base.html" %}
+
+{% block title %}PIC SGI{% endblock %}
+{% block page_title %}PIC SGI{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item">Pengaturan</li>
+<li class="breadcrumb-item active">PIC SGI</li>
+{% endblock %}
+
+{% block content %}
+{% include "partials/messages.html" %}
+
+<div class="row">
+  <div class="col-xl-8">
+    <div class="card">
+      <div class="card-header pb-0">
+        <h5>Daftar PIC</h5>
+        <p class="f-12 text-muted mb-0 mt-1">Menerima WhatsApp dan email saat CCTV baru ditambahkan atau lokasinya berubah, supaya coverage-nya didigitasi.</p>
+      </div>
+      <div class="card-body">
+        {% if pics %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle cctv-table">
+            <thead><tr><th>Nama</th><th>WhatsApp</th><th>Email</th><th>Site</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {% for pic in pics %}
+              <tr>
+                <td>
+                  <span class="f-w-600">{{ pic.nama }}</span>
+                  {% if pic.karyawan %}<div class="f-12 text-muted">{{ pic.karyawan.sid }} · {{ pic.karyawan.jabatan_struktural|default:"-" }}</div>{% endif %}
+                </td>
+                <td>{{ pic.no_wa|default:"-" }}</td>
+                <td>{{ pic.email|default:"-" }}</td>
+                <td>{{ pic.site|default:"Semua site" }}</td>
+                <td>{% if pic.aktif %}<span class="badge badge-success">Aktif</span>{% else %}<span class="badge badge-light text-dark">Nonaktif</span>{% endif %}</td>
+                <td class="text-end text-nowrap">
+                  <form method="post" action="{% url 'notifikasi:pic_test' pic.pk %}" class="d-inline">
+                    {% csrf_token %}
+                    <button class="btn btn-outline-primary btn-xs" type="submit">Tes kirim</button>
+                  </form>
+                  <a class="btn btn-light btn-xs" href="{% url 'notifikasi:pic_update' pic.pk %}">Ubah</a>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="empty-state"><i data-feather="users"></i><p class="mt-2 mb-0">Belum ada PIC. Tambahkan di samping.</p></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-xl-4">
+    <form method="post" class="card" novalidate>
+      {% csrf_token %}
+      <div class="card-header pb-0"><h5>Tambah PIC</h5></div>
+      <div class="card-body row">
+        {% include "notifikasi/partials/pic_fields.html" %}
+        <div class="col-12"><button class="btn btn-primary" type="submit">Tambah</button></div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header pb-0"><h5>Log notifikasi</h5></div>
+  <div class="card-body">
+    {% if log %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle cctv-table mb-0">
+        <thead><tr><th>Waktu</th><th>Jenis</th><th>CCTV</th><th>Kanal</th><th>Tujuan</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          {% for n in log %}
+          <tr>
+            <td class="text-nowrap">{{ n.dibuat|date:"d M H:i" }}</td>
+            <td>{{ n.get_jenis_display }}</td>
+            <td>{% if n.cctv %}<a href="{% url 'cctv:detail' n.cctv_id %}">{{ n.cctv.no_cctv }}</a>{% else %}-{% endif %}</td>
+            <td>{{ n.get_kanal_display }}</td>
+            <td>{{ n.tujuan }}{% if n.pic %} <span class="f-12 text-muted">({{ n.pic.nama }})</span>{% endif %}</td>
+            <td>
+              <span class="badge badge-{% if n.status == 'terkirim' %}success{% elif n.status == 'gagal' %}danger{% else %}warning{% endif %}">{{ n.get_status_display }}</span>
+              {% if n.error %}<div class="f-12 text-danger mt-1">{{ n.error|truncatechars:140 }}</div>{% endif %}
+            </td>
+            <td class="text-end">
+              {% if n.status != 'terkirim' %}
+              <form method="post" action="{% url 'notifikasi:resend' n.pk %}">
+                {% csrf_token %}
+                <button class="btn btn-light btn-xs" type="submit">Kirim ulang</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-muted mb-0">Belum ada notifikasi.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scriptcontent %}{% include "notifikasi/partials/pic_search_js.html" %}{% endblock %}

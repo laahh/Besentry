@@ -1,0 +1,34 @@
+{% extends "layout/base.html" %}
+
+{% block title %}{{ pic.nama }}{% endblock %}
+{% block page_title %}{{ pic.nama }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item">Pengaturan</li>
+<li class="breadcrumb-item"><a href="{% url 'notifikasi:pic_list' %}">PIC SGI</a></li>
+<li class="breadcrumb-item active">Ubah</li>
+{% endblock %}
+{% block page_actions %}
+<form method="post" action="{% url 'notifikasi:pic_delete' pic.pk %}" class="d-inline" onsubmit="return confirm('Hapus PIC {{ pic.nama|escapejs }}?');">
+  {% csrf_token %}
+  <button class="btn btn-outline-danger btn-sm" type="submit"><i data-feather="trash-2"></i>Hapus</button>
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-xl-6">
+    <form method="post" class="card" novalidate>
+      {% csrf_token %}
+      <div class="card-body row">
+        {% include "notifikasi/partials/pic_fields.html" %}
+        <div class="col-12 d-flex gap-2">
+          <button class="btn btn-primary" type="submit">Simpan</button>
+          <a class="btn btn-light" href="{% url 'notifikasi:pic_list' %}">Batal</a>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scriptcontent %}{% include "notifikasi/partials/pic_search_js.html" %}{% endblock %}

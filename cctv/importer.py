@@ -67,9 +67,10 @@ KATEGORI = {'cctv support': 'support', 'mining eyes': 'mining_eyes', 'cctv porta
 FUNGSI = {'fixed view': 'fixed', 'patrol view': 'patrol', 'mobile view': 'mobile',
           'portable (ikk)': 'portable', 'portable': 'portable'}
 BENTUK = {'statis': 'statis', 'dinamis': 'dinamis'}
-JENIS = {'fix': 'fixed', 'fixed': 'fixed', 'ptz': 'ptz', 'mob': 'mobile', 'mobile': 'mobile',
-         'portable': 'portable'}
-STATUS = {'live view': 'live', 'live': 'live', 'offline': 'offline'}
+JENIS = {'fix': 'fixed', 'fixed': 'fixed', 'ptz': 'ptz', 'ptz & fixed': 'ptz_fixed', 'ptz & fix': 'ptz_fixed',
+         'mob': 'mobile', 'mobile': 'mobile', 'portable': 'portable', 'portabel': 'portable'}
+STATUS = {'live view': 'live', 'live': 'live', 'post event': 'post_event', 'offline': 'offline',
+          'non aktif': 'offline'}
 KONDISI = {'baik': 'baik', 'breakdown': 'breakdown', 'repair': 'repair', 'dismantle': 'dismantle',
            'take out': 'take_out'}
 BRANDS = {'hikvision': 'Hikvision', 'dahua': 'Dahua', 'ezviz': 'EZVIZ', 'ezvize': 'EZVIZ',
@@ -183,7 +184,8 @@ class Importer:
         return mapping.get(text, '')
 
     def _site(self, kode):
-        kode = clean(kode).upper()
+        # "BMO1" and "BMO 1" are the same site.
+        kode = re.sub(r'^([A-Z]+)\s*(\d+)$', r'\1 \2', clean(kode).upper())
         if kode not in self.sites:
             self.sites[kode] = Site.objects.create(kode=kode)
         return self.sites[kode]

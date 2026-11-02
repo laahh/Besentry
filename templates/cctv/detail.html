@@ -9,7 +9,10 @@
 <li class="breadcrumb-item active">{{ cctv.no_cctv }}</li>
 {% endblock %}
 {% block page_actions %}
-{% if can_edit %}<a class="btn btn-primary btn-sm" href="{% url 'cctv:update' cctv.pk %}"><i data-feather="edit" class="me-1"></i>Ubah</a>{% endif %}
+{% if can_edit %}
+<a class="btn btn-outline-primary btn-sm" href="{% url 'cctv:coverage_create' %}?cctv={{ cctv.pk }}"><i data-feather="map"></i>Ajukan coverage</a>
+<a class="btn btn-primary btn-sm" href="{% url 'cctv:update' cctv.pk %}"><i data-feather="edit" class="me-1"></i>Ubah</a>
+{% endif %}
 {% if can_delete %}
 <form method="post" action="{% url 'cctv:delete' cctv.pk %}" class="d-inline" onsubmit="return confirm('Hapus CCTV {{ cctv.no_cctv|escapejs }}? Riwayatnya tetap tersimpan.');">
   {% csrf_token %}
@@ -172,7 +175,7 @@
 {% if cctv.posisi %}
 <script type="module">
   import * as maplibregl from 'maplibre-gl';
-  import { createMap } from "{% static 'js/peta.js' %}";
+  import { createMap } from 'besentry/peta';
 
   const el = document.getElementById('peta-cctv');
   const center = [Number(el.dataset.lng), Number(el.dataset.lat)];

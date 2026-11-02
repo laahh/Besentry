@@ -1,0 +1,126 @@
+{% extends "layout/base.html" %}
+{% load static %}
+
+{% block title %}{% if pengajuan %}Revisi {{ cctv.no_cctv }}{% else %}Ajukan perubahan coverage{% endif %}{% endblock %}
+{% block page_title %}{% if pengajuan %}Revisi pengajuan {{ cctv.no_cctv }}{% else %}Ajukan perubahan coverage{% endif %}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item">Kesiapan Alat</li>
+<li class="breadcrumb-item"><a href="{% url 'cctv:coverage_index' %}">Verifikasi Coverage</a></li>
+<li class="breadcrumb-item active">{% if pengajuan %}Revisi{% else %}Ajukan{% endif %}</li>
+{% endblock %}
+{% block css %}{% include "layout/maplibre.html" %}{% endblock %}
+
+{% block content %}
+{% if not cctv %}
+<!-- Step 1: pick the CCTV, so the map can show where it is -->
+<div class="card">
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label" for="pilih-no">No. CCTV</label>
+        <input class="form-control" id="pilih-no" name="no" value="{{ request.GET.no|default:'' }}" placeholder="mis. LMO-BC-0001" required autofocus>
+        {% if request.GET.no %}<div class="text-danger f-12 mt-1">No. CCTV tidak ditemukan atau di luar cakupan ubah Anda.</div>{% endif %}
+      </div>
+      <div class="col-md-3"><button class="btn btn-primary" type="submit">Muat</button></div>
+    </form>
+  </div>
+</div>
+{% else %}
+<form method="post" enctype="multipart/form-data" novalidate>
+  {% csrf_token %}
+  {% for error in form.non_field_errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+  <div class="row">
+    <div class="col-xl-4">
+      <div class="card">
+        <div class="card-header pb-0"><h5>Pengajuan</h5></div>
+        <div class="card-body row">
+          {% include "partials/field.html" with field=form.no_cctv col="col-12" %}
+          {% include "partials/field.html" with field=form.jenis col="col-12" %}
+          {% include "partials/field.html" with field=form.tangkapan_layar col="col-12" %}
+          {% include "partials/field.html" with field=form.keterangan col="col-12" %}
+          <div class="col-12 f-12 text-muted">
+            Coverage aktif: {% if peta.aktif %}v{{ versi_aktif }}{% else %}belum ada{% endif %}.
+            Setelah dikirim, sistem memvalidasi geometri lalu pengajuan masuk ke antrian SGI.
+          </div>
+        </div>
+      </div>
+      <div class="d-flex gap-2 mb-4">
+        <button class="btn btn-primary" type="submit">{% if pengajuan %}Kirim ulang{% else %}Kirim pengajuan{% endif %}</button>
+        <a class="btn btn-light" href="{% url 'cctv:coverage_index' %}">Batal</a>
+      </div>
+    </div>
+
+    <div class="col-xl-8">
+      <div class="card" id="kartu-gambar">
+        <div class="card-header pb-0 d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <h5>Digitasi coverage</h5>
+          <div class="d-flex gap-2">
+            {% if peta.aktif %}<button class="btn btn-outline-primary btn-xs" type="button" id="draw-salin">Salin versi aktif</button>{% endif %}
+            <button class="btn btn-light btn-xs" type="button" id="draw-undo">Undo titik</button>
+            <button class="btn btn-light btn-xs" type="button" id="draw-hapus">Hapus</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <p class="f-12 text-muted mb-2">Klik peta untuk menambah titik, geser titik untuk mengubah. Garis putus-putus hijau = coverage aktif. Tidak perlu digambar untuk pengajuan <em>Dicabut</em>.</p>
+          <div class="peta-gambar" id="peta-gambar"></div>
+          {{ form.geom_json }}
+          <div class="d-flex justify-content-between f-12 mt-2">
+            <span id="draw-status" class="text-muted">Belum ada polygon.</span>
+          </div>
+          {% for error in form.geom_json.errors %}<div class="text-danger f-12 mt-1">{{ error }}</div>{% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</form>
+{{ peta|json_script:"data-peta" }}
+{% endif %}
+{% endblock %}
+
+{% block scriptcontent %}
+{% if cctv %}
+<script type="module">
+  import * as maplibregl from 'maplibre-gl';
+  import { createMap } from 'besentry/peta';
+  import { addOrthophotoLayer } from 'besentry/orthophoto-layer';
+  import { addCoverage, fitExtent } from 'besentry/coverage-map';
+  import { PolygonDraw } from 'besentry/polygon-draw';
+
+  const data = JSON.parse(document.getElementById('data-peta').textContent);
+  const input = document.getElementById('{{ form.geom_json.id_for_label }}');
+  const status = document.getElementById('draw-status');
+  const map = createMap(maplibregl, { container: 'peta-gambar' });
+  if (data.kamera) map.jumpTo({ center: data.kamera, zoom: 16 });
+
+  map.once('style.load', () => {
+    addCoverage(maplibregl, map, { geometry: data.aktif, camera: data.kamera, dashed: true, id: 'aktif' });
+    addOrthophotoLayer(map, { apiUrl: "{% url 'orthophoto:current' %}" }).catch(() => null);
+    if (data.aktif && !data.kamera) fitExtent(map, turfExtent(data.aktif));
+
+    const draw = new PolygonDraw(maplibregl, map, {
+      onChange: (polygon) => {
+        input.value = polygon ? JSON.stringify(polygon) : '';
+        status.textContent = polygon ? `Polygon ${polygon.coordinates[0].length - 1} titik.` : 'Belum ada polygon.';
+      },
+    });
+    // Keep what was drawn when the form comes back with an error.
+    if (input.value) draw.load(firstRing(JSON.parse(input.value)));
+
+    document.getElementById('draw-undo').addEventListener('click', () => draw.undo());
+    document.getElementById('draw-hapus').addEventListener('click', () => draw.clear());
+    document.getElementById('draw-salin')?.addEventListener('click', () => draw.load(firstRing(data.aktif)));
+  });
+
+  function firstRing(geometry) {
+    return geometry.type === 'MultiPolygon' ? geometry.coordinates[0][0] : geometry.coordinates[0];
+  }
+
+  function turfExtent(geometry) {
+    const points = firstRing(geometry);
+    const xs = points.map((p) => p[0]);
+    const ys = points.map((p) => p[1]);
+    return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  }
+</script>
+{% endif %}
+{% endblock %}

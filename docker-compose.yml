@@ -56,6 +56,23 @@ services:
       - titiler
     restart: unless-stopped
 
+  notifier:
+    build: .
+    container_name: besentry_notifier
+    # Mengirim WhatsApp/email ke PIC SGI dari antrean "notifikasi" (aktif jika NOTIFIKASI_ASYNC=True)
+    command: python manage.py rqworker notifikasi
+    env_file: .env
+    environment:
+      DATABASE_URL: postgis://besentry:besentry_dev@db:5432/besentry
+      LOG_DATABASE_URL: postgis://besentry:besentry_dev@db:5432/besentry_log
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - .:/app
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+
   titiler:
     image: ghcr.io/developmentseed/titiler:2.4.0
     container_name: besentry_titiler

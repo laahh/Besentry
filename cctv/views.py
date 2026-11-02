@@ -9,15 +9,17 @@ from django.db.models import BooleanField, Count, ExpressionWrapper, F, FloatFie
 from django.db.models.deletion import ProtectedError
 from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from core.models import DetailLokasi, Perusahaan, Site
+from notifikasi import services as notifikasi
 
-from . import history
+from . import coverage, history
 from .access import get_scope
 from .forms import CctvAksesForm, CctvForm, CctvSpecForm
-from .models import Cctv, CctvAkses
+from .models import Cctv, CctvAkses, PengajuanCoverage
 
 PER_PAGE = 50
 RIWAYAT_LIMIT = 30
@@ -224,6 +226,7 @@ def _form(request, scope, cctv=None):
     forms = [f for f in (form, spec_form, akses_form) if f]
 
     if request.method == 'POST' and all(f.is_valid() for f in forms):
+        before = notifikasi.location_snapshot(cctv) if cctv else None
         with transaction.atomic(), transaction.atomic(using='log'):
             saved = form.save()
             # Spec/akses rows are only created once something is filled in.
@@ -231,7 +234,23 @@ def _form(request, scope, cctv=None):
                 if related_form and (existing or related_form.has_changed()):
                     related_form.instance.cctv = saved
                     related_form.save()
+            # New CCTV, or a changed location: SGI gets a digitisation task and the PICs a message
+            # linking to it (sent after commit).
+            sent = []
+            changes = notifikasi.location_changes(before, saved) if before else None
+            if before is None or changes:
+                jenis = PengajuanCoverage.Jenis.BARU if before is None else PengajuanCoverage.Jenis.DIPINDAH
+                catatan = '; '.join(f'{label}: {old} → {new}' for label, old, new in changes or [])
+                task = coverage.create_digitasi_task(saved, request.user, jenis, catatan or 'CCTV baru')
+                sent = notifikasi.notify_cctv(saved, request.user, before=before, changes=changes,
+                                              path=f"{reverse('cctv:digitasi_index')}?id={task.pk}")
         messages.success(request, f'CCTV {saved.no_cctv} disimpan.')
+        if sent:
+            # Already delivered when sending is synchronous; otherwise still queued.
+            counts = notifikasi.status_counts(sent)
+            level = messages.warning if counts['gagal'] else messages.info
+            level(request, f"Notifikasi ke {len({n.pic_id for n in sent})} PIC SGI: "
+                           f"{counts['terkirim']} terkirim, {counts['gagal']} gagal, {counts['menunggu']} di antrean.")
         return redirect('cctv:detail', pk=saved.pk)
 
     return render(request, 'cctv/form.html', {
@@ -271,7 +290,8 @@ def delete(request, pk):
         with transaction.atomic(), transaction.atomic(using='log'):
             cctv.delete()
     except ProtectedError:
-        messages.error(request, f'CCTV {cctv.no_cctv} masih punya data coverage, jadi tidak bisa dihapus.')
+        messages.error(request, f'CCTV {cctv.no_cctv} masih punya data coverage atau pengajuan coverage, '
+                                'jadi tidak bisa dihapus.')
         return redirect('cctv:detail', pk=pk)
     messages.success(request, f'CCTV {cctv.no_cctv} dihapus.')
     return redirect('cctv:index')

@@ -101,6 +101,289 @@
   border-top: 1px dashed #e6edef;
 }
 
+/* Coverage verification */
+.verif-tabs .nav-link {
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #6c757d;
+  font-size: 13px;
+}
+
+.verif-tabs .nav-link.active {
+  background: #fff;
+  border-color: #2c323f;
+  color: #2c323f;
+}
+
+.verif-count {
+  font-size: 12px;
+}
+
+.verif-heading {
+  font-size: 13px;
+  color: #6c757d;
+}
+
+.verif-queue-item {
+  display: block;
+  margin-bottom: 10px;
+  padding: 12px 14px;
+  border: 1px solid #e6edef;
+  border-radius: 8px;
+  background: #fff;
+  color: #2c323f;
+}
+
+.verif-queue-item:hover {
+  color: #2c323f;
+  border-color: #b8c4c7;
+}
+
+.verif-queue-item.active {
+  border: 2px solid #2c323f;
+}
+
+.verif-jenis {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.verif-jenis-dipindah { background: #2c323f; color: #fff; }
+.verif-jenis-baru { background: #eef1f2; color: #2c323f; }
+.verif-jenis-dicabut { background: #fff; color: #2c323f; border: 1px solid #b8c4c7; }
+
+.verif-card {
+  margin-bottom: 16px;
+}
+
+.verif-card .card-body {
+  padding: 18px;
+}
+
+.verif-muted h6,
+.verif-muted .form-check-label {
+  color: #9aa3a6;
+}
+
+.peta-banding {
+  height: 300px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #e9ecef;
+}
+
+.peta-gambar {
+  height: 520px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.draw-vertex {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #d97706;
+  box-shadow: 0 0 0 1px #d97706;
+  cursor: move;
+}
+
+.verif-tangkapan {
+  width: 100%;
+  height: 150px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #e9ecef;
+}
+
+.verif-tangkapan-kosong {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6c757d;
+  font-size: 13px;
+}
+
+.verif-meta td {
+  padding: 5px 0;
+  border: 0;
+  font-size: 13px;
+}
+
+.verif-meta td:first-child {
+  color: #6c757d;
+}
+
+.verif-timeline {
+  padding: 0;
+  list-style: none;
+}
+
+.verif-timeline li {
+  position: relative;
+  display: flex;
+  gap: 16px;
+  padding: 4px 0 4px 18px;
+  font-size: 13px;
+}
+
+.verif-timeline li::before {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2c323f;
+  content: '';
+}
+
+.verif-timeline li.verif-now::before {
+  background: #c4cbcd;
+}
+
+.verif-time {
+  flex: 0 0 90px;
+  color: #6c757d;
+}
+
+/* CCTV GeoPoint (static/js/geopoint.js) */
+.gp-kamera {
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #1b1f22;
+  cursor: crosshair;
+  user-select: none;
+}
+
+.gp-kamera img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.gp-kamera svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.gp-peta {
+  height: 100%;
+  min-height: 320px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.gp-kalibrasi {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #f0d58c;
+  border-radius: 8px;
+  background: #fffbea;
+}
+
+.gp-chip {
+  padding: 3px 8px;
+  border: 1px solid #d6dcde;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+}
+
+.gp-chip.aktif {
+  border-color: #2c323f;
+  background: #2c323f;
+  color: #fff;
+}
+
+.gp-chip span {
+  margin-left: 4px;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.gp-pin {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: #1b1f22;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 40%);
+}
+
+.gp-pin-gcp { background: #ffd166; }
+.gp-pin-gcp.aktif { box-shadow: 0 0 0 3px #2c323f; }
+.gp-pin-titik { background: #4dabf7; }
+
+.gp-label {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #4dabf7;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Homography check figures (templates/cctv/coverage/analisis.html) */
+.verif-angka {
+  height: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e6edef;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.verif-angka span {
+  display: block;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.verif-angka em {
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 400;
+  color: #6c757d;
+}
+
+.verif-angka small {
+  font-size: 11px;
+  color: #6c757d;
+}
+
+.verif-angka.baik span { color: #2f9e44; }
+.verif-angka.sedang span { color: #d97706; }
+.verif-angka.buruk span { color: #dc3545; }
+
+/* PIC SGI: employee search results */
+.pic-hasil {
+  position: absolute;
+  z-index: 20;
+  left: 12px;
+  right: 12px;
+  max-height: 280px;
+  overflow-y: auto;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 12%);
+}
+
+.pic-terpilih {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #f3f7f6;
+}
+
 .empty-state {
   padding: 32px 0;
   text-align: center;

@@ -1,0 +1,56 @@
+{# Employee search for the PIC form (see partials/pic_fields.html). #}
+<script>
+  (() => {
+    const input = document.getElementById('pic-cari');
+    const hidden = document.getElementById('pic-sid');
+    const list = document.getElementById('pic-hasil');
+    const chosen = document.getElementById('pic-terpilih');
+    const wa = document.getElementById('{{ form.no_wa.id_for_label }}');
+    const email = document.getElementById('{{ form.email.id_for_label }}');
+    let timer, last = '';
+
+    const text = (tag, value, className) => {
+      const node = document.createElement(tag);
+      node.textContent = value;
+      if (className) node.className = className;
+      return node;
+    };
+
+    function pick(k) {
+      hidden.value = k.sid;
+      input.value = `${k.nama} (${k.sid})`;
+      list.classList.add('d-none');
+      // Prefill from SID; the server takes SID values for whatever stays empty.
+      if (!wa.value && k.no_hp) wa.value = k.no_hp;
+      if (!email.value && k.email) email.value = k.email;
+      chosen.replaceChildren(text('strong', k.nama), document.createTextNode(` · ${k.sid}`),
+        text('div', [k.jabatan || '-', k.perusahaan || '-', k.site || ''].filter(Boolean).join(' · '), 'f-12 text-muted'));
+      chosen.classList.remove('d-none');
+    }
+
+    async function search(q) {
+      const response = await fetch(`${input.dataset.url}?q=${encodeURIComponent(q)}`);
+      if (!response.ok || q !== last) return;
+      const { results } = await response.json();
+      list.replaceChildren(...(results.length ? results.map((k) => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'list-group-item list-group-item-action';
+        item.append(text('div', `${k.nama} · ${k.sid}`, 'f-w-600'),
+          text('div', [k.jabatan, k.perusahaan, k.status].filter(Boolean).join(' · '), 'f-12 text-muted'));
+        item.addEventListener('click', () => pick(k));
+        return item;
+      }) : [text('div', 'Tidak ditemukan. Coba SID lengkap.', 'list-group-item f-12 text-muted')]));
+      list.classList.remove('d-none');
+    }
+
+    input.addEventListener('input', () => {
+      hidden.value = input.value.trim();  // a typed SID also works without picking
+      last = input.value.trim();
+      clearTimeout(timer);
+      if (last.length < 2) { list.classList.add('d-none'); return; }
+      timer = setTimeout(() => search(last), 250);
+    });
+    document.addEventListener('click', (e) => { if (!list.contains(e.target) && e.target !== input) list.classList.add('d-none'); });
+  })();
+</script>

@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth.models import Group
 from django.contrib.gis.db import models
 from simple_history.models import HistoricalRecords
@@ -59,6 +60,7 @@ class Cctv(models.Model):
     class Jenis(models.TextChoices):
         FIXED = 'fixed', 'FIXED'
         PTZ = 'ptz', 'PTZ'
+        PTZ_FIXED = 'ptz_fixed', 'PTZ & FIXED'
         MOBILE = 'mobile', 'MOBILE'
         PORTABLE = 'portable', 'PORTABLE'
 
@@ -69,6 +71,7 @@ class Cctv(models.Model):
 
     class Status(models.TextChoices):
         LIVE = 'live', 'Live View'
+        POST_EVENT = 'post_event', 'Post Event'
         OFFLINE = 'offline', 'Offline'
 
     class Kondisi(models.TextChoices):
@@ -140,9 +143,11 @@ class Cctv(models.Model):
     def kondisi_badge(self):
         return self.KONDISI_BADGE.get(self.kondisi, 'light')
 
+    STATUS_BADGE = {Status.LIVE: 'success', Status.POST_EVENT: 'info', Status.OFFLINE: 'danger'}
+
     @property
     def status_badge(self):
-        return 'success' if self.status == self.Status.LIVE else 'danger'
+        return self.STATUS_BADGE.get(self.status, 'light')
 
 
 class CctvSpec(models.Model):
@@ -226,7 +231,8 @@ class CctvCoverage(models.Model):
 
     cctv = models.ForeignKey(Cctv, on_delete=models.PROTECT, related_name='coverage')
     minggu = models.DateField(help_text='Hari Senin pada minggu coverage.')
-    geom = models.MultiPolygonField(srid=4326)
+    # Empty when the coverage was withdrawn (an approved "Dicabut" request).
+    geom = models.MultiPolygonField(srid=4326, null=True, blank=True)
     dibuat = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -242,3 +248,135 @@ class CctvCoverage(models.Model):
     @property
     def minggu_iso(self):
         return self.minggu.strftime('%G-W%V')
+
+
+class PengajuanCoverage(models.Model):
+    """A request to change a CCTV's coverage, reviewed by SGI and then Safety.
+
+    The approved polygon becomes this week's CctvCoverage (the active version).
+    """
+
+    class Jenis(models.TextChoices):
+        BARU = 'baru', 'Baru'
+        DIPINDAH = 'dipindah', 'Dipindah'
+        DICABUT = 'dicabut', 'Dicabut'
+
+    class Status(models.TextChoices):
+        # Made automatically when IT adds or moves a CCTV: SGI still has to draw the coverage.
+        MENUNGGU_DIGITASI = 'menunggu_digitasi', 'Menunggu digitasi SGI'
+        MENUNGGU_SGI = 'menunggu_sgi', 'Menunggu SGI'
+        MENUNGGU_SAFETY = 'menunggu_safety', 'Menunggu Safety'
+        DIKEMBALIKAN = 'dikembalikan', 'Dikembalikan'
+        SELESAI = 'selesai', 'Selesai'
+
+    CHECKLIST_SGI = (
+        ('batas_objek', 'Batas sesuai objek di orthophoto'),
+        ('jarak_pandang', 'Tidak melebihi jarak pandang efektif'),
+        ('area_terhalang', 'Area terhalang (bench/timbunan) dikeluarkan'),
+    )
+    CHECKLIST_SAFETY = (
+        ('kamera_online', 'Kamera online & gambar jelas'),
+        ('lensa_bersih', 'Lensa bersih, tidak terhalang'),
+        ('sudut_pandang', 'Sudut pandang sesuai pengajuan'),
+        ('layak_awasi', 'Layak untuk pengawasan berjarak (P-SFO-04)'),
+    )
+
+    cctv = models.ForeignKey(Cctv, on_delete=models.PROTECT, related_name='pengajuan_coverage')
+    jenis = models.CharField(max_length=10, choices=Jenis.choices)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.MENUNGGU_SGI)
+    geom = models.MultiPolygonField('Usulan coverage', srid=4326, null=True, blank=True)
+    versi = models.PositiveSmallIntegerField(help_text='Nomor versi coverage yang diusulkan.')
+    tangkapan_layar = models.FileField(upload_to='coverage/tangkapan/%Y/%m/', blank=True)
+    orthophoto = models.ForeignKey(
+        'orthophoto.Orthophoto', null=True, blank=True, on_delete=models.SET_NULL, related_name='+',
+        help_text='Orthophoto aktif saat digitasi.',
+    )
+    keterangan = models.TextField(blank=True)
+    diajukan_oleh = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='pengajuan_coverage',
+    )
+    digitasi_oleh = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+',
+    )
+    digitasi_pada = models.DateTimeField(null=True, blank=True)
+    checklist_sgi = models.JSONField(default=list, blank=True)
+    checklist_safety = models.JSONField(default=list, blank=True)
+    # Ground control points pairing screenshot pixels with map positions:
+    # {"gcp": [{"px", "py", "lon", "lat"}, ...], "lebar": px, "tinggi": px} (see cctv.coverage.clean_kalibrasi)
+    kalibrasi = models.JSONField(default=dict, blank=True)
+    # Homography check by Safety (cctv.homography.analyse) and the screenshot with the coverage drawn on.
+    analisis = models.JSONField(default=dict, blank=True)
+    bukti = models.FileField(upload_to='coverage/bukti/%Y/%m/', blank=True)
+    dibuat = models.DateTimeField(auto_now_add=True)
+    diubah = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-diubah']
+        verbose_name = 'pengajuan coverage'
+        verbose_name_plural = 'pengajuan coverage'
+        indexes = [models.Index(fields=['status', '-diubah'], name='pengajuan_status')]
+        constraints = [
+            # One open request per CCTV, so reviewers never compare against a moving target.
+            models.UniqueConstraint(
+                fields=['cctv'], condition=~models.Q(status='selesai'), name='pengajuan_satu_terbuka',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.cctv} - {self.get_jenis_display()} ({self.get_status_display()})'
+
+    @property
+    def tahap(self):
+        """The review stage now running: 'sgi', 'safety', or '' when not under review."""
+        return {self.Status.MENUNGGU_SGI: 'sgi', self.Status.MENUNGGU_SAFETY: 'safety'}.get(self.status, '')
+
+
+class RiwayatPengajuan(models.Model):
+    class Aksi(models.TextChoices):
+        DIAJUKAN = 'diajukan', 'Mengajukan perubahan'
+        DIGITASI = 'digitasi', 'Mengirim digitasi'
+        VALIDASI = 'validasi', 'Validasi geometri lolos'
+        KALIBRASI = 'kalibrasi', 'Menyimpan kalibrasi kamera'
+        DISETUJUI_SGI = 'setuju_sgi', 'Disetujui SGI'
+        DISETUJUI_SAFETY = 'setuju_safety', 'Disetujui Safety'
+        DIKEMBALIKAN = 'dikembalikan', 'Dikembalikan'
+
+    pengajuan = models.ForeignKey(PengajuanCoverage, on_delete=models.CASCADE, related_name='riwayat')
+    aksi = models.CharField(max_length=20, choices=Aksi.choices)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+                             related_name='+')
+    catatan = models.TextField(blank=True)
+    waktu = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['waktu', 'pk']
+        verbose_name_plural = 'riwayat pengajuan'
+
+
+class KalibrasiKamera(models.Model):
+    """GCPs pairing a CCTV screenshot with the map, solved into a homography (cctv.homography).
+
+    One active calibration per camera, reused for later requests; switched off when the CCTV
+    is moved (and Safety recalibrates when the camera was turned).
+    """
+
+    cctv = models.ForeignKey(Cctv, on_delete=models.CASCADE, related_name='kalibrasi')
+    gambar = models.FileField(upload_to='coverage/kalibrasi/%Y/%m/', help_text='Tangkapan layar yang dikalibrasi.')
+    gcp = models.JSONField(help_text='[{"px", "py", "lon", "lat"}, ...]')
+    lebar = models.PositiveIntegerField()
+    tinggi = models.PositiveIntegerField()
+    hasil = models.JSONField(help_text='Matriks homography, inlier/residual per GCP, RMSE (meter).')
+    aktif = models.BooleanField(default=True)
+    dibuat_oleh = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='+')
+    dibuat = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-dibuat']
+        verbose_name = 'kalibrasi kamera'
+        verbose_name_plural = 'kalibrasi kamera'
+        constraints = [
+            models.UniqueConstraint(fields=['cctv'], condition=models.Q(aktif=True), name='kalibrasi_satu_aktif'),
+        ]
+
+    def __str__(self):
+        return f'{self.cctv_id} {self.dibuat:%Y-%m-%d} ({len(self.gcp)} GCP)'

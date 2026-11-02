@@ -1,5 +1,19 @@
-{# MapLibre GL JS, one version for every map page. Include inside {% block css %}; then in a module script: import * as maplibregl from 'maplibre-gl'; #}
+{% load static_version %}
+{# MapLibre GL JS and the BeSentry map modules. Include inside {% block css %}; then in a module script: #}
+{#   import * as maplibregl from 'maplibre-gl';  import { createMap } from 'besentry/peta';            #}
+{# Our modules go through this import map with versioned URLs, so a changed file is never served from cache. #}
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.14.0/dist/maplibre-gl.css">
 <script type="importmap">
-  {"imports": {"maplibre-gl": "https://unpkg.com/maplibre-gl@6.14.0/dist/maplibre-gl.mjs"}}
+  {
+    "imports": {
+      "maplibre-gl": "https://unpkg.com/maplibre-gl@6.14.0/dist/maplibre-gl.mjs",
+      "besentry/peta": "{% static_v 'js/peta.js' %}",
+      "besentry/orthophoto-layer": "{% static_v 'js/orthophoto-layer.js' %}",
+      "besentry/cctv-layer": "{% static_v 'js/cctv-layer.js' %}",
+      "besentry/coverage-map": "{% static_v 'js/coverage-map.js' %}",
+      "besentry/polygon-draw": "{% static_v 'js/polygon-draw.js' %}",
+      "besentry/homography": "{% static_v 'js/homography.js' %}",
+      "besentry/geopoint": "{% static_v 'js/geopoint.js' %}"
+    }
+  }
 </script>

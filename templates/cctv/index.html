@@ -146,8 +146,8 @@
 {% block scriptcontent %}
 <script type="module">
   import * as maplibregl from 'maplibre-gl';
-  import { createMap } from "{% static 'js/peta.js' %}";
-  import { addCctvLayer } from "{% static 'js/cctv-layer.js' %}";
+  import { createMap } from 'besentry/peta';
+  import { addCctvLayer } from 'besentry/cctv-layer';
 
   // The map and its data load only when the tab is first opened.
   const link = document.getElementById('tab-peta-link');

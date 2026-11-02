@@ -92,8 +92,8 @@
 {% load static %}
 <script type="module">
   import * as maplibregl from 'maplibre-gl';
-  import { createMap } from "{% static 'js/peta.js' %}";
-  import { addOrthophotoLayer, OrthophotoControl } from "{% static 'js/orthophoto-layer.js' %}";
+  import { createMap } from 'besentry/peta';
+  import { addOrthophotoLayer, OrthophotoControl } from 'besentry/orthophoto-layer';
 
   const map = createMap(maplibregl, { container: 'peta' });
   map.on('load', async () => {

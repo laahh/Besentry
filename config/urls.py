@@ -27,6 +27,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('cctv.urls')),
     path('', include('pengaturan.urls')),
+    path('', include('notifikasi.urls')),
     path('', include('orthophoto.urls')),
     path('', include('navigation.urls')),
 ]

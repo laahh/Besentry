@@ -52,6 +52,8 @@ class Karyawan(models.Model):
     npk = models.CharField('NPK', max_length=30, blank=True)
     nama = models.CharField(max_length=150)
     email = models.CharField(max_length=150, blank=True)
+    # Only in the per-SID detail API (and the BEATS login), not in the bulk employee list.
+    no_hp = models.CharField('No. HP', max_length=30, blank=True)
     perusahaan = models.ForeignKey(
         Perusahaan, null=True, blank=True, on_delete=models.SET_NULL, related_name='karyawan',
     )
