@@ -174,7 +174,6 @@ def publish(ortho_id, on_progress=None):
     ortho = Orthophoto.objects.get(pk=ortho_id)
     src = settings.ORTHOPHOTO_INCOMING_DIR / ortho.file_sumber
     cog_dir = settings.ORTHOPHOTO_COG_DIR
-    cog_dir.mkdir(parents=True, exist_ok=True)
     final = cog_dir / cog_name(ortho)
     # TiTiler only ever sees a finished file: write under another name, then rename.
     part = final.with_name(final.name + '.part')
@@ -188,6 +187,7 @@ def publish(ortho_id, on_progress=None):
     try:
         if not src.is_file():
             raise PublishError(f'File sumber tidak ditemukan: {ortho.file_sumber}')
+        cog_dir.mkdir(parents=True, exist_ok=True)
         convert_to_cog(src, part, progress)
         part.replace(final)
         previous = _make_current(ortho, read_tilejson(ortho))
