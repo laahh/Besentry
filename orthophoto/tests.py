@@ -48,7 +48,13 @@ class ProgressParserTests(TestCase):
         parser = services.ProgressParser()
         seen = [p for c in 'Input file size is 6000, 4000\n0...10...20...30.ERROR 1: x 2.5\n100 - done.'
                 if (p := parser.feed(c)) is not None]
-        self.assertEqual(seen, [0, 10, 20, 30])
+        self.assertEqual(seen, [0, 2, 5, 7, 10, 12, 15, 17, 20, 22, 25, 27, 30, 32])
+
+    def test_reaches_100(self):
+        parser = services.ProgressParser()
+        line = '...'.join(str(ten) for ten in range(0, 101, 10)) + ' - done.'
+        seen = [p for c in line if (p := parser.feed(c)) is not None]
+        self.assertEqual(seen[-3:], [95, 97, 100])
 
 
 class ParseBulanTests(TestCase):

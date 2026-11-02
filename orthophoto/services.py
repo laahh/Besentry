@@ -85,23 +85,42 @@ def gdal_translate_command(src, dst):
 
 
 class ProgressParser:
-    """Reads GDAL's terminal progress ("0...10...20...") one character at a time."""
+    """Reads GDAL's terminal progress ("0...10...20...") one character at a time.
+
+    GDAL prints each ten as it is reached and a dot every 2.5% in between ("0" at 0%,
+    then dots at 2.5, 5 and 7.5, "10" at 10%...), so a ten counts as soon as its last
+    digit arrives, and only dots that follow a ten or another dot count.
+    """
+
+    DOT_PERCENT = 2.5
 
     def __init__(self):
         self.digits = ''
+        self.next_ten = 0
+        self.in_line = False  # just after a ten or a progress dot
+        self.value = 0.0
         self.last = -1
 
     def feed(self, char):
-        """Return a new percentage when one completes, else None."""
+        """Return a new whole percentage when one is reached, else None."""
         if char.isdigit():
             self.digits += char
+            if self.digits != str(self.next_ten):
+                return None
+            self.digits = ''
+            self.value = self.next_ten
+            self.next_ten += 10
+            self.in_line = True
+        elif char == '.' and self.in_line and not self.digits:
+            self.value += self.DOT_PERCENT
+        else:
+            self.digits = ''
+            self.in_line = False
             return None
-        percent = None
-        if char == '.' and self.digits:
-            value = int(self.digits)
-            if value % 10 == 0 and self.last < value <= 100:
-                self.last = percent = value
-        self.digits = ''
+        percent = int(self.value)
+        if percent <= self.last:
+            return None
+        self.last = percent
         return percent
 
 
