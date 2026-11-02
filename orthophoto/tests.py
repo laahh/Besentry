@@ -1,4 +1,5 @@
 import datetime
+import json
 import tempfile
 from pathlib import Path
 from unittest import mock
@@ -118,8 +119,31 @@ class PublishTests(TempDirsMixin, TestCase):
         convert.assert_not_called()
 
 
+def gdalinfo_result(*interps):
+    bands = [{'band': i, 'colorInterpretation': interp} for i, interp in enumerate(interps, 1)]
+    return mock.Mock(returncode=0, stdout=json.dumps({'bands': bands}), stderr='')
+
+
+class AlphaBandTests(TestCase):
+    def test_finds_alpha_after_an_extra_band(self):
+        # Like the Global Mapper mosaic: band 4 is a solid extra channel, band 5 the alpha.
+        result = gdalinfo_result('Red', 'Green', 'Blue', 'Undefined', 'Alpha')
+        with mock.patch.object(services.subprocess, 'run', return_value=result):
+            self.assertEqual(services.alpha_band('a.tif'), 5)
+
+    def test_plain_rgba(self):
+        with mock.patch.object(services.subprocess, 'run', return_value=gdalinfo_result('Red', 'Green', 'Blue', 'Alpha')):
+            self.assertEqual(services.alpha_band('a.tif'), 4)
+
+    def test_no_alpha_fails(self):
+        with mock.patch.object(services.subprocess, 'run', return_value=gdalinfo_result('Red', 'Green', 'Blue')):
+            with self.assertRaisesMessage(services.PublishError, 'tidak punya band alpha'):
+                services.alpha_band('a.tif')
+
+
 class ConvertTests(TempDirsMixin, TestCase):
-    def test_gdal_errors_fail_even_with_exit_code_zero(self):
+    @mock.patch.object(services, 'alpha_band', return_value=4)
+    def test_gdal_errors_fail_even_with_exit_code_zero(self, alpha_band):
         output = '0...10.ERROR 1: JPEGLib:Too many color components\n100 - done.'
         process = mock.Mock(stdout=mock.Mock(read=mock.Mock(side_effect=[*output, ''])))
         process.wait.return_value = 0

@@ -64,12 +64,27 @@ def preview_url(ortho):
     return f'{settings.TITILER_PUBLIC_URL}/cog/{TILE_MATRIX_SET}/map.html?{_cog_query(ortho)}'
 
 
-def gdal_translate_command(src, dst):
+def alpha_band(src):
+    """Number of the raw file's alpha band.
+
+    Not always band 4: Global Mapper mosaics can carry an extra band before the alpha.
+    """
+    result = subprocess.run(['gdalinfo', '-json', str(src)], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise PublishError(result.stderr.strip()[-ERROR_TAIL_CHARS:] or 'gdalinfo gagal.')
+    for band in json.loads(result.stdout)['bands']:
+        if band.get('colorInterpretation') == 'Alpha':
+            return band['band']
+    # Without an alpha the area outside the photo would come out as a solid background.
+    raise PublishError('File mentah tidak punya band alpha, jadi area di luar foto tidak bisa transparan.')
+
+
+def gdal_translate_command(src, dst, alpha):
     return [
         'gdal_translate', str(src), str(dst),
-        # The raw file is RGBA. JPEG holds at most 3 colour bands (plus a warp alpha it
-        # can't store), so keep RGB and turn the alpha into a mask: outside the photo stays transparent.
-        '-b', '1', '-b', '2', '-b', '3', '-mask', '4',
+        # JPEG holds at most 3 colour bands (plus a warp alpha it can't store), so keep
+        # RGB and turn the alpha into a mask: outside the photo stays transparent.
+        '-b', '1', '-b', '2', '-b', '3', '-mask', str(alpha),
         '-of', 'COG',
         # Reproject to Web Mercator once here, so TiTiler serves tiles without warping.
         '-co', 'TILING_SCHEME=GoogleMapsCompatible',
@@ -126,7 +141,8 @@ class ProgressParser:
 
 def convert_to_cog(src, dst, on_progress):
     process = subprocess.Popen(
-        gdal_translate_command(src, dst), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        gdal_translate_command(src, dst, alpha_band(src)),
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
     output = []
     parser = ProgressParser()

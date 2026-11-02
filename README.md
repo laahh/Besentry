@@ -69,7 +69,7 @@ Dikelola oleh **Survey & Geospatial Information**. Setiap peta di BeSentry menca
 
 Orthophoto terbaru disajikan sebagai tile oleh TiTiler. Hanya satu orthophoto yang disimpan; publish bulan baru menggantikan yang lama.
 
-1. Salin file mentah (GeoTIFF RGBA, band 4 = alpha) ke `data/incoming/`.
+1. Salin file mentah (GeoTIFF RGB + band alpha; nomor band alpha dicari otomatis) ke `data/incoming/`.
 2. Buka **Spasial > Orthophoto** (`/orthophoto/`, khusus `admin-hazard-motion`), pilih file dan bulan, klik **Publish**.
 3. Service `worker` mengonversi ke COG (Web Mercator, JPEG + mask), memeriksa lewat TiTiler, lalu menjadikannya bulan aktif dan menghapus COG lama di `data/cog/`.
 
