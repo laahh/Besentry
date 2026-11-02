@@ -4,7 +4,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 # GDAL/GEOS/PROJ untuk GeoDjango
-RUN apt-get update \
+# Repo Debian lewat HTTPS: di sebagian jaringan kantor, HTTP biasa dicegat proxy
+# sehingga apt-get gagal ("Clearsigned file isn't valid").
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends binutils libproj-dev gdal-bin \
     && rm -rf /var/lib/apt/lists/*
 
