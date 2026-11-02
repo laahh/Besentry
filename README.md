@@ -50,6 +50,19 @@ python manage.py runserver          # http://127.0.0.1:8000/admin
 
 Buka http://127.0.0.1:8000 (diarahkan ke `/login/`, lalu `/dashboard/`).
 
+### Port sudah dipakai
+
+Port di komputer bisa diubah lewat `.env` tanpa mengubah `docker-compose.yml`:
+
+| Variabel | Default | Untuk |
+|---|---|---|
+| `WEB_PORT` | 8000 | Django (`web`) |
+| `TITILER_PORT` | 8081 | TiTiler (URL tile untuk browser ikut menyesuaikan) |
+| `DB_PORT` | 5433 | PostGIS |
+| `REDIS_PORT` | 6379 | Redis |
+
+Contoh: tambahkan `WEB_PORT=8001` ke `.env`, jalankan `docker compose up -d`, lalu buka http://localhost:8001. Kalau `DB_PORT`/`REDIS_PORT` diubah dan Django dijalankan dari `.venv`, sesuaikan juga port di `DATABASE_URL`/`REDIS_URL`.
+
 ## Orthophoto bulanan
 
 Dikelola oleh **Survey & Geospatial Information**. Setiap peta di BeSentry mencantumkan kredit ini (lewat `createMap` di `static/js/peta.js`).

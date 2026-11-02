@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: besentry
       POSTGRES_PASSWORD: besentry_dev
     ports:
-      - "5433:5432"   # 5432 dipakai PostgreSQL 18 lokal Windows
+      - "${DB_PORT:-5433}:5432"   # 5432 dipakai PostgreSQL 18 lokal Windows
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/initdb/01-log-db.sql:/docker-entrypoint-initdb.d/20-log-db.sql:ro   # buat besentry_log (volume baru saja)
@@ -16,7 +16,7 @@ services:
     image: redis:7-alpine
     container_name: besentry_redis
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
 
   web:
     build: .
@@ -28,8 +28,9 @@ services:
       DATABASE_URL: postgis://besentry:besentry_dev@db:5432/besentry
       LOG_DATABASE_URL: postgis://besentry:besentry_dev@db:5432/besentry_log
       REDIS_URL: redis://redis:6379/0
+      TITILER_PUBLIC_URL: ${TITILER_PUBLIC_URL:-http://localhost:${TITILER_PORT:-8081}}
     ports:
-      - "8000:8000"
+      - "${WEB_PORT:-8000}:8000"
     volumes:
       - .:/app   # kode di-mount supaya runserver auto-reload
     depends_on:
@@ -71,7 +72,7 @@ services:
     volumes:
       - ./data/cog:/data/cog:ro
     ports:
-      - "8081:8000"
+      - "${TITILER_PORT:-8081}:8000"
     restart: unless-stopped
 
 volumes:
