@@ -47,7 +47,7 @@
         <h5>Publish orthophoto baru</h5>
       </div>
       <div class="card-body">
-        <p class="f-12">Salin file mentah (GeoTIFF RGBA) ke folder <code>data/incoming/</code> di server, lalu pilih di sini. Konversi berjalan di worker; halaman ini boleh ditutup.</p>
+        <p class="f-12">Salin file mentah (GeoTIFF RGB dengan band alpha) ke folder <code>data/incoming/</code> di server, lalu pilih di sini. Konversi berjalan di worker; halaman ini boleh ditutup.</p>
         {% if berjalan %}
         <div class="alert alert-info" role="alert">Publish {{ berjalan.bulan|date:"F Y" }} sedang berjalan. Publish baru bisa dimulai setelah selesai.</div>
         {% endif %}
