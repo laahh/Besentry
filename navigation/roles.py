@@ -5,8 +5,11 @@ IT_PAMA = 'hazard-motion-it-pama'
 IT_MTL = 'hazard-motion-it-mtl'
 # Mitra (contractor) accounts only see the BeWell mitra pages.
 MITRA_ONLY = 'mitra-only'
+# CCTV registrasi: SGI draws the boundary, Safety approves. Not in the Laravel app yet.
+SGI = 'sgi'
+SAFETY = 'safety-approval'
 
-ALL_ROLES = (ADMIN_HAZARD_MOTION, IT_PAMA, IT_MTL, MITRA_ONLY)
+ALL_ROLES = (ADMIN_HAZARD_MOTION, IT_PAMA, IT_MTL, MITRA_ONLY, SGI, SAFETY)
 CCTV_ADMINS = (ADMIN_HAZARD_MOTION, IT_PAMA, IT_MTL)
 
 
