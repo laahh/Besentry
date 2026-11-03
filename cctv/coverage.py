@@ -34,6 +34,9 @@ GEOMETRY_FIELDS = ('posisi', 'jenis')
 GEOMETRY_SPEC_FIELDS = ('radius_m', 'azimuth_deg', 'tilt_deg', 'tinggi_pasang_m')
 SHP_PARTS = ('.shp', '.shx', '.dbf', '.prj')
 SHP_MAX_MB = 50
+# More vertices than this are simplified on load, so the polygon stays editable in the browser.
+EDIT_MAX_VERTICES = 300
+SIMPLIFY_TOLERANCES_M = (0.1, 0.25, 0.5, 1, 2, 5)
 
 Status = PengajuanCoverage.Status
 Aksi = RiwayatPengajuan.Aksi
@@ -60,6 +63,14 @@ def open_request(cctv):
 
 def latest_request(cctv):
     return PengajuanCoverage.objects.filter(cctv=cctv).order_by('-dibuat', '-pk').first()
+
+
+def previous_request(pengajuan):
+    """The last approved request of the same CCTV with a screenshot: what the camera saw before."""
+    if not pengajuan.cctv_id:
+        return None
+    return (PengajuanCoverage.objects.filter(cctv_id=pengajuan.cctv_id, status__in=PengajuanCoverage.SELESAI)
+            .exclude(pk=pengajuan.pk).exclude(tangkapan_layar='').order_by('-dibuat', '-pk').first())
 
 
 def approved_coverage(cctv):
@@ -200,6 +211,29 @@ def _batas_site():
     from orthophoto.models import Orthophoto
     ortho = Orthophoto.objects.filter(aktif=True).only('batas').first()
     return (ortho.batas, 'extent orthophoto') if ortho and ortho.batas else (WILAYAH, 'wilayah operasi Berau')
+
+
+def editable_polygon(geom):
+    """One polygon without holes, simplified when it has too many vertices to edit by hand.
+
+    Returns (Polygon in EPSG:4326, note for the user or '').
+    """
+    polygon = geom[0] if isinstance(geom, MultiPolygon) and len(geom) == 1 else geom
+    if not isinstance(polygon, Polygon):
+        raise GeometryError(f'SHP berisi {len(geom)} polygon terpisah; gabungkan menjadi 1 polygon.')
+    if polygon.num_interior_rings:
+        raise GeometryError('Polygon SHP memiliki lubang (hole); hapus lubangnya agar bisa diedit di peta.')
+    count = len(polygon.exterior_ring) - 1
+    if count <= EDIT_MAX_VERTICES:
+        return polygon, ''
+    local = polygon.transform(UTM_50N, clone=True)
+    for tolerance in SIMPLIFY_TOLERANCES_M:
+        simple = local.simplify(tolerance, preserve_topology=True)
+        if len(simple.exterior_ring) - 1 <= EDIT_MAX_VERTICES:
+            break
+    simple.transform(4326)
+    return simple, (f'Polygon disederhanakan dari {count} ke {len(simple.exterior_ring) - 1} titik '
+                    f'(toleransi {tolerance:g} m) agar bisa diedit.')
 
 
 def validate_geometry(geom, cctv):

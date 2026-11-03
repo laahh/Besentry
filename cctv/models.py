@@ -1,6 +1,9 @@
+import hashlib
+
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.contrib.gis.db import models
+from django.urls import reverse
 from simple_history.models import HistoricalRecords
 
 from core.fields import EncryptedTextField
@@ -393,6 +396,14 @@ class PengajuanCoverage(models.Model):
     def label(self):
         """'Approved W42 2026', as the CCTV list shows it."""
         return f'{self.get_status_display()} {self.minggu_label}'.strip()
+
+    @property
+    def tangkapan_url(self):
+        """The screenshot URL; it changes with the file, so browsers never show a cached older one."""
+        if not self.tangkapan_layar:
+            return ''
+        versi = hashlib.sha1(self.tangkapan_layar.name.encode()).hexdigest()[:10]
+        return f"{reverse('cctv:pengajuan_tangkapan', args=[self.pk])}?v={versi}"
 
 
 class RiwayatPengajuan(models.Model):

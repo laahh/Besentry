@@ -4,13 +4,16 @@ Each tab is editable only for its role while the request sits at that stage; the
 """
 
 import json
+import uuid
+from pathlib import Path
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.gis.geos import MultiPolygon
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 from django.db.models import Q
-from django.http import FileResponse, Http404, QueryDict
+from django.http import FileResponse, Http404, JsonResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
@@ -22,7 +25,7 @@ from . import coverage
 from .access import get_scope
 from .forms import CctvAksesForm, CctvForm, CctvSpecForm
 from .models import Cctv, PengajuanCoverage
-from .pengajuan_forms import DigitasiForm, ItForm, ReviewForm, draft_data, mark_previous
+from .pengajuan_forms import CekGeometriForm, DigitasiForm, ItForm, ReviewForm, draft_data, mark_previous
 from .views import _akses
 
 Status = PengajuanCoverage.Status
@@ -170,7 +173,11 @@ def _render(request, scope, pengajuan, tab=None, forms=None):
         context.update({
             'riwayat': pengajuan.riwayat.select_related('user'),
             'peta': _peta(pengajuan),
-            'digitasi_form': DigitasiForm(initial={'geom_json': pengajuan.geom.geojson if pengajuan.geom else ''}),
+            'digitasi_form': DigitasiForm(initial={
+                'geom_json': pengajuan.geom.geojson if pengajuan.geom else '',
+                'nama_shp': pengajuan.file_shp,
+            }),
+            'sebelumnya': coverage.previous_request(pengajuan),
             'checklist_sgi': [(k, label, k in checked_sgi) for k, label in pengajuan.CHECKLIST_SGI],
             'checklist_safety': [(k, label, k in checked_safety) for k, label in pengajuan.CHECKLIST_SAFETY],
             'luas_sebelum': coverage.luas_ha(pengajuan.geom_sebelum),
@@ -287,6 +294,8 @@ def _attach(pengajuan, it_form):
     if upload:
         if pengajuan.tangkapan_layar:
             pengajuan.tangkapan_layar.delete(save=False)
+        # A fresh name every time, so the versioned URL (tangkapan_url) changes with the picture.
+        upload.name = uuid.uuid4().hex + Path(upload.name).suffix.lower()
         pengajuan.tangkapan_layar = upload
 
 
@@ -298,20 +307,18 @@ def mitra(request, pk):
     if not _can_mitra(scope, pengajuan):
         raise PermissionDenied
     back = redirect(_url(pengajuan, 'mitra'))
-    form = DigitasiForm(request.POST, request.FILES)
+    form = DigitasiForm(request.POST)
     if not form.is_valid():
         messages.error(request, '; '.join(e for errors in form.errors.values() for e in errors))
         return back
-    upload = form.cleaned_data.get('file_shp')
+    nama = form.cleaned_data['nama_shp']
+    sumber = PengajuanCoverage.SumberGeom.SHP if nama else PengajuanCoverage.SumberGeom.GAMBAR
+    kirim = form.cleaned_data['aksi'] == 'kirim'
     try:
-        if upload:
-            geom, sumber, nama = coverage.read_shp_zip(upload), PengajuanCoverage.SumberGeom.SHP, upload.name
-        else:
-            geom, sumber, nama = coverage.parse_geometry(form.cleaned_data['geom_json']), PengajuanCoverage.SumberGeom.GAMBAR, ''
-        kirim = form.cleaned_data['aksi'] == 'kirim'
         coverage.save_digitasi(
-            pengajuan, request.user, geom, kirim=kirim, sumber=sumber, file_shp=nama,
-            catatan=form.cleaned_data['catatan'], orthophoto=Orthophoto.objects.filter(aktif=True).first(),
+            pengajuan, request.user, coverage.parse_geometry(form.cleaned_data['geom_json']), kirim=kirim,
+            sumber=sumber, file_shp=nama, catatan=form.cleaned_data['catatan'],
+            orthophoto=Orthophoto.objects.filter(aktif=True).first(),
         )
     except (coverage.GeometryError, coverage.ReviewError) as exc:
         messages.error(request, getattr(exc, 'message', None) or str(exc))
@@ -320,8 +327,45 @@ def mitra(request, pk):
         messages.success(request, f'Boundary {pengajuan.no_cctv} diajukan ke Survey BC.')
         _notify(request, pengajuan)
         return redirect(_url(pengajuan))
-    messages.success(request, f'Draft boundary {pengajuan.no_cctv} disimpan{" dari " + nama if nama else ""}.')
+    messages.success(request, f'Draft boundary {pengajuan.no_cctv} disimpan.')
     return back
+
+
+@login_required
+@require_POST
+def mitra_cek(request, pk):
+    """Read an SHP into an editable polygon, or check a drawn one; nothing is saved.
+
+    {geom, nama, catatan, valid, pesan} or {error} with status 400.
+    """
+    scope = _scope(request.user)
+    pengajuan = get_object_or_404(_visible(scope, request.user), pk=pk)
+    if not _can_mitra(scope, pengajuan):
+        raise PermissionDenied
+    form = CekGeometriForm(request.POST, request.FILES)
+    if not form.is_valid():
+        return JsonResponse({'error': '; '.join(e for errors in form.errors.values() for e in errors)}, status=400)
+    upload = form.cleaned_data['file_shp']
+    catatan = ''
+    try:
+        if upload:
+            polygon, catatan = coverage.editable_polygon(coverage.read_shp_zip(upload))
+            geom = MultiPolygon(polygon, srid=4326)
+        else:
+            geom = coverage.parse_geometry(form.cleaned_data['geom_json'])
+    except coverage.GeometryError as exc:
+        return JsonResponse({'error': str(exc)}, status=400)
+    try:
+        valid, pesan = True, coverage.validate_geometry(geom, pengajuan.cctv)
+    except coverage.GeometryError as exc:
+        valid, pesan = False, str(exc)
+    return JsonResponse({
+        'geom': json.loads(geom[0].geojson) if geom else None,
+        'nama': upload.name if upload else '',
+        'catatan': catatan,
+        'valid': valid,
+        'pesan': pesan,
+    })
 
 
 def _review(request, pk, can, run):

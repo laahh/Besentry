@@ -80,8 +80,8 @@
         <div class="form-text">Tangkapan layar terbaru dari kamera, wajib untuk setiap pengajuan (PNG, JPG, atau WEBP, maks. 5 MB).</div>
         {% for error in it_form.tangkapan_layar.errors %}<div class="text-danger f-12">{{ error }}</div>{% endfor %}
         {% if p.tangkapan_layar %}
-        <a href="{% url 'cctv:pengajuan_tangkapan' p.pk %}" target="_blank" rel="noopener">
-          <img class="verif-tangkapan mt-2" src="{% url 'cctv:pengajuan_tangkapan' p.pk %}" alt="Tangkapan layar {{ p.no_cctv }}" loading="lazy">
+        <a href="{{ p.tangkapan_url }}" target="_blank" rel="noopener">
+          <img class="verif-tangkapan foto-cctv mt-2" src="{{ p.tangkapan_url }}" alt="Tangkapan layar {{ p.no_cctv }}" loading="lazy">
         </a>
         {% endif %}
       </div>

@@ -255,6 +255,19 @@ class FlowTests(FlowMixin, TestCase):
         self.assertEqual((pengajuan.status, pengajuan.minggu), ('menunggu_mitra', next_week))
         self.assertEqual(pengajuan.posisi_sebelum.coords, CAMERA)  # still the original "before"
 
+    def test_new_screenshot_after_return_gets_a_new_url(self):
+        pengajuan = self.review(self.digitasi(self.moved()), 'sgi', 'it', [], 'Foto buram')
+        old_url = pengajuan.tangkapan_url
+        self.client.force_login(self.it)
+        data = {**self.cctv_form(longitude='117.6002'), 'aksi': 'draft',
+                'tangkapan_layar': SimpleUploadedFile('layar.png', PNG + b'baru', content_type='image/png')}
+        self.client.post(reverse('cctv:pengajuan_it', args=[pengajuan.pk]), data)
+        pengajuan.refresh_from_db()
+        self.assertNotEqual(pengajuan.tangkapan_url, old_url)
+        self.assertTrue(pengajuan.tangkapan_layar.read().endswith(b'baru'))
+        self.assertContains(self.client.get(reverse('cctv:pengajuan', args=[pengajuan.pk]), {'tab': 'it'}),
+                            pengajuan.tangkapan_url)
+
     def test_wrong_role_cannot_act(self):
         pengajuan = self.digitasi(self.moved())
         self.client.force_login(self.safety)
@@ -281,15 +294,60 @@ class GeometryTests(FlowMixin, TestCase):
             with self.subTest(message), self.assertRaisesMessage(coverage.GeometryError, message):
                 coverage.validate_geometry(geom, cctv)
 
-    def test_shp_upload(self):
+    def test_shp_loads_as_an_editable_polygon(self):
         pengajuan = self.moved()
         self.client.force_login(self.mitra)
-        url = reverse('cctv:pengajuan_mitra', args=[pengajuan.pk])
-        self.client.post(url, {'aksi': 'kirim', 'file_shp': shp_zip([square(*CAMERA)])})
+        cek = reverse('cctv:pengajuan_mitra_cek', args=[pengajuan.pk])
+        result = self.client.post(cek, {'file_shp': shp_zip([square(*CAMERA)])}).json()
+        self.assertEqual((result['nama'], result['valid'], result['geom']['type']), ('boundary.zip', True, 'Polygon'))
+        self.assertAlmostEqual(result['geom']['coordinates'][0][0][0], CAMERA[0], places=5)
+        pengajuan.refresh_from_db()
+        self.assertIsNone(pengajuan.geom)  # only read, not saved
+
+        # Edited in the browser, then sent: still recorded as coming from the SHP.
+        ring = result['geom']['coordinates'][0]
+        ring[2] = [ring[2][0] + 0.0002, ring[2][1]]
+        data = {'aksi': 'kirim', 'nama_shp': result['nama'],
+                'geom_json': json.dumps({'type': 'Polygon', 'coordinates': [ring]})}
+        self.client.post(reverse('cctv:pengajuan_mitra', args=[pengajuan.pk]), data)
         pengajuan.refresh_from_db()
         self.assertEqual((pengajuan.status, pengajuan.sumber_geom, pengajuan.file_shp),
                          ('menunggu_sgi', 'shp', 'boundary.zip'))
-        self.assertAlmostEqual(pengajuan.geom.extent[0], CAMERA[0], places=5)
+        self.assertAlmostEqual(pengajuan.geom[0].exterior_ring[2][0], ring[2][0], places=7)
+
+    def test_check_reports_without_saving(self):
+        pengajuan = self.moved()
+        self.client.force_login(self.mitra)
+        cek = reverse('cctv:pengajuan_mitra_cek', args=[pengajuan.pk])
+        far = self.client.post(cek, {'geom_json': geojson(square(CAMERA[0] + 0.01, CAMERA[1]))}).json()
+        self.assertFalse(far['valid'])
+        self.assertIn('melebihi batas', far['pesan'])
+        bad = self.client.post(cek, {'file_shp': shp_zip([square(*CAMERA)], srs='EPSG:4326')})
+        self.assertEqual(bad.status_code, 400)
+        self.assertIn('UTM zone 50N', bad.json()['error'])
+        self.client.force_login(self.survey_bc)
+        self.assertEqual(self.client.post(cek, {'geom_json': geojson(square(*CAMERA))}).status_code, 403)
+
+    def test_editable_polygon(self):
+        holed = Polygon(square(*CAMERA).exterior_ring, square(CAMERA[0] + 0.0004, CAMERA[1] + 0.0004, 0.0002).exterior_ring)
+        two = MultiPolygon(square(*CAMERA), square(CAMERA[0] + 0.002, CAMERA[1]), srid=4326)
+        for geom, message in ((MultiPolygon(holed, srid=4326), 'lubang'), (two, '2 polygon')):
+            with self.subTest(message), self.assertRaisesMessage(coverage.GeometryError, message):
+                coverage.editable_polygon(geom)
+        circle = Point(*CAMERA, srid=4326).transform(coverage.UTM_50N, clone=True).buffer(100, quadsegs=250)
+        circle.transform(4326)
+        polygon, note = coverage.editable_polygon(MultiPolygon(circle, srid=4326))
+        self.assertLessEqual(len(polygon.exterior_ring) - 1, coverage.EDIT_MAX_VERTICES)
+        self.assertIn('disederhanakan', note)
+
+    def test_previous_screenshot_on_the_mitra_tab(self):
+        first = self.review(self.review(self.digitasi(self.moved()), 'sgi', 'safety', SGI_ALL),
+                            'safety', 'approve', SAFETY_ALL, 'OK')
+        second = self.ajukan(longitude='117.6004')
+        self.client.force_login(self.mitra)
+        page = self.client.get(reverse('cctv:pengajuan', args=[second.pk]), {'tab': 'mitra'})
+        self.assertEqual(page.context['sebelumnya'], first)
+        self.assertContains(page, reverse('cctv:pengajuan_tangkapan', args=[first.pk]))
 
     def test_shp_rules(self):
         cases = (

@@ -91,13 +91,17 @@ class ItForm(forms.Form):
 
 class DigitasiForm(forms.Form):
     geom_json = forms.CharField(required=False, widget=forms.HiddenInput)
-    file_shp = forms.FileField(
-        label='Upload SHP (.zip)', required=False,
-        widget=forms.ClearableFileInput(attrs={'accept': '.zip,application/zip', 'class': 'form-control'}),
-    )
+    # Set by the page when the polygon came from an SHP; the polygon itself may be edited afterwards.
+    nama_shp = forms.CharField(required=False, max_length=255, widget=forms.HiddenInput)
     catatan = forms.CharField(required=False, max_length=1000,
                               widget=forms.Textarea(attrs={'rows': 4, 'class': 'form-control'}))
     aksi = forms.ChoiceField(choices=(('draft', 'Simpan draft'), ('kirim', 'Ajukan ke Survey BC')))
+
+
+class CekGeometriForm(forms.Form):
+    """The page asks for an SHP to be read, or the drawn polygon to be checked, before saving."""
+    geom_json = forms.CharField(required=False)
+    file_shp = forms.FileField(required=False)
 
     def clean_file_shp(self):
         upload = self.cleaned_data.get('file_shp')

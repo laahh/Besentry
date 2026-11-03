@@ -15,9 +15,19 @@
   <div class="col-xl-4">
     <div class="card verif-card">
       <div class="card-body">
+        <h6>Pandangan kamera</h6>
+        {% if p.tangkapan_layar %}
+        <a href="{{ p.tangkapan_url }}" target="_blank" rel="noopener">
+          <img class="verif-tangkapan foto-cctv" src="{{ p.tangkapan_url }}" alt="Tangkapan layar {{ p.no_cctv }}" loading="lazy">
+        </a>
+        {% else %}<div class="verif-tangkapan verif-tangkapan-kosong foto-cctv">Tidak ada tangkapan layar</div>{% endif %}
+      </div>
+    </div>
+    <div class="card verif-card">
+      <div class="card-body">
         <h6>Hasil</h6>
         {% if p.status == 'approved_warning' %}
-        <div class="alert alert-warning f-12"><i data-feather="alert-triangle" class="me-1"></i>Approved with warning: tidak semua checklist Safety terpenuhi. Warning hilang setelah pengajuan berikutnya Approved.</div>
+        <div class="alert alert-warning f-12"><i data-feather="alert-triangle"></i><p class="f-12 mb-0">Approved with warning: tidak semua checklist Safety terpenuhi. Warning hilang setelah pengajuan berikutnya Approved.</p></div>
         {% endif %}
         <table class="table verif-meta mb-2">
           <tbody>

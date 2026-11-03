@@ -64,7 +64,7 @@
 {% endblock %}
 
 {% block scriptcontent %}
-{% if p and tab != 'it' %}
+{% if p and tab != 'it' and tab in tab_terbuka %}
 <script type="module">
   import * as maplibregl from 'maplibre-gl';
   import { createMap } from 'besentry/peta';
@@ -89,36 +89,104 @@
   }
 
   {% if tab == 'mitra' %}
-  const input = document.getElementById('{{ digitasi_form.geom_json.id_for_label }}');
+  showMap('peta-sebelum', data.sebelum);
+
+  const form = document.getElementById('form-digitasi');
+  const input = form.geom_json;
+  const namaShp = form.nama_shp;
   const status = document.getElementById('draw-status');
+  const hasil = document.getElementById('validasi-hasil');
   const canDraw = {{ can.mitra|yesno:"true,false" }};
-  const sesudah = { ...data.sesudah, geom: null };  // the editable shape is drawn by PolygonDraw
+  const cekUrl = "{% url 'cctv:pengajuan_mitra_cek' p.pk %}";
   const map = createMap(maplibregl, { container: 'peta-digitasi' });
   if (data.sesudah.kamera) map.jumpTo({ center: data.sesudah.kamera, zoom: 16 });
   else fitExtent(map, data.sesudah.extent || data.ortho_extent);
+
+  function showResult(result) {
+    hasil.className = `f-12 alert py-2 mb-0 alert-${result.valid ? 'success' : 'danger'}`;
+    hasil.textContent = result.valid ? `Lolos validasi: ${result.pesan}.` : result.pesan;
+  }
+
+  // Ask the server: read an SHP into a polygon, or check the drawn one. Nothing is saved.
+  async function cek(body) {
+    body.append('csrfmiddlewaretoken', form.csrfmiddlewaretoken.value);
+    const response = await fetch(cekUrl, { method: 'POST', body });
+    const result = await response.json().catch(() => ({ error: `Gagal (${response.status}).` }));
+    if (!response.ok) throw new Error(result.error || `Gagal (${response.status}).`);
+    return result;
+  }
+
   map.once('style.load', () => {
     addOrthophotoLayer(map, { apiUrl: orthoApi }).catch(() => null);
     addCoverage(maplibregl, map, { geometry: data.sebelum.geom, dashed: true, id: 'sebelum' });
-    addCoverage(maplibregl, map, { geometry: null, camera: sesudah.kamera, id: 'kamera' });
+    addCoverage(maplibregl, map, { geometry: null, camera: data.sesudah.kamera, id: 'kamera' });
     const saved = input.value ? JSON.parse(input.value) : null;
     if (!canDraw) {
       if (saved) addCoverage(maplibregl, map, { geometry: saved, color: PROPOSED_COLOR, id: 'usulan' });
       return;
     }
+
+    let timer = null;
+    let checked = 0;  // only the latest check may show its result
+    let edited = false;  // the saved polygon keeps its "Boundary tersimpan" line until it changes
     const draw = new PolygonDraw(maplibregl, map, {
       onChange: (polygon) => {
         input.value = polygon ? JSON.stringify(polygon) : '';
-        status.textContent = polygon ? `Polygon ${polygon.coordinates[0].length - 1} titik, belum disimpan.` : 'Belum ada polygon.';
+        const asal = namaShp.value ? ` dari ${namaShp.value}` : '';
+        if (edited) status.textContent = polygon ? `Polygon${asal}: ${polygon.coordinates[0].length - 1} titik, belum disimpan.` : 'Belum ada polygon.';
+        clearTimeout(timer);
+        if (!polygon) {
+          hasil.className = 'f-12 alert alert-light py-2 mb-0';
+          hasil.textContent = 'Belum ada polygon.';
+          return;
+        }
+        timer = setTimeout(async () => {
+          const id = ++checked;
+          const body = new FormData();
+          body.append('geom_json', input.value);
+          try {
+            const result = await cek(body);
+            if (id === checked) showResult(result);
+          } catch (error) {
+            if (id === checked) showResult({ valid: false, pesan: error.message });
+          }
+        }, 600);
       },
     });
-    if (saved) draw.load(firstRing(saved));
+    if (saved) draw.load(firstRing(saved), { undoable: false });
+    edited = true;
+
+    const shpInput = document.getElementById('shp-input');
+    const shpError = document.getElementById('shp-error');
+    shpInput.addEventListener('change', async () => {
+      const file = shpInput.files[0];
+      shpInput.value = '';  // the same file can be picked again
+      if (!file) return;
+      shpError.textContent = '';
+      status.textContent = `Membaca ${file.name}...`;
+      const body = new FormData();
+      body.append('file_shp', file);
+      try {
+        const result = await cek(body);
+        namaShp.value = result.nama;
+        draw.load(result.geom.coordinates[0]);
+        fitExtent(map, draw.bounds());
+        if (result.catatan) shpError.textContent = result.catatan;
+      } catch (error) {
+        shpError.textContent = error.message;
+        draw.update();  // put the status line back
+      }
+    });
     document.getElementById('draw-undo').addEventListener('click', () => draw.undo());
-    document.getElementById('draw-hapus').addEventListener('click', () => draw.clear());
-    document.getElementById('draw-salin')?.addEventListener('click', () => draw.load(firstRing(data.sebelum.geom)));
+    document.getElementById('draw-hapus').addEventListener('click', () => { namaShp.value = ''; draw.clear(); });
+    document.getElementById('draw-salin')?.addEventListener('click', () => {
+      namaShp.value = '';
+      draw.load(firstRing(data.sebelum.geom));
+    });
   });
   {% else %}
   {% if tab != 'selesai' %}showMap('peta-sebelum', data.sebelum);{% endif %}
-  showMap('peta-sesudah', data.sesudah, { color: PROPOSED_COLOR });
+  showMap('peta-sesudah', data.sesudah, { color: PROPOSED_COLOR{% if tab != 'selesai' %}, dashedBefore: true{% endif %} });
   {% endif %}
 </script>
 {% endif %}

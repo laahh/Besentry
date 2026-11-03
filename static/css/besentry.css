@@ -137,6 +137,66 @@
   overflow: hidden;
 }
 
+/* Always a 16:9 box (CCTV streams are 16:9), so before and after line up; any other shape is
+   shown whole inside it rather than stretching the box. */
+.verif-tangkapan.foto-cctv {
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+}
+
+/* Before and after side by side. Both cards share the grid's rows (subgrid), so a longer caption on
+   one side moves both maps down together and they always start at the same height. */
+.banding {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 24px;
+}
+
+.banding-sisi,
+.banding-sisi > .card-body {
+  display: grid;
+  grid-row: span 6;
+  grid-template-rows: subgrid;
+  row-gap: 0;
+}
+
+.banding-sisi > .card-body {
+  grid-row: 1 / -1;
+}
+
+@media (max-width: 991.98px) {
+  .banding {
+    grid-template-columns: 1fr;
+  }
+}
+
+.digitasi-peta {
+  height: 480px;
+}
+
+/* Same height left and right, so both maps line up even when only the right has buttons. */
+.digitasi-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 28px;
+  margin-bottom: 8px;
+}
+
+.digitasi-info {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px 16px;
+  font-size: 13px;
+}
+
+.digitasi-info span {
+  display: block;
+  color: #6c757d;
+  font-size: 12px;
+}
+
 .draw-vertex {
   width: 12px;
   height: 12px;

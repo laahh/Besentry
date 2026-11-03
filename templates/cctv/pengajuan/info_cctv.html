@@ -1,27 +1,31 @@
 {% load pengguna %}
-{# The CCTV and what IT changed, for the Mitra and review tabs. Uses p, jangkauan_m. #}
+{# The CCTV and what IT changed, above the before/after columns of the Mitra and review tabs. Uses p, jangkauan_m. #}
 <div class="card verif-card">
   <div class="card-body">
-    <h6>Info CCTV</h6>
-    <table class="table verif-meta mb-2">
-      <tbody>
-        <tr><td>No. CCTV</td><td class="text-end f-w-600">{{ p.no_cctv }}</td></tr>
-        <tr><td>Nama</td><td class="text-end">{{ p.cctv.nama }}</td></tr>
-        <tr><td>Jenis pengajuan</td><td class="text-end">{{ p.get_jenis_display }}</td></tr>
-        <tr><td>Site / perusahaan</td><td class="text-end">{{ p.cctv.site.kode }} / {{ p.cctv.perusahaan.nama }}</td></tr>
-        <tr><td>Lokasi</td><td class="text-end">{{ p.cctv.lokasi.nama|default:p.cctv.lokasi_pemasangan|default:"-" }}</td></tr>
-        <tr><td>Tipe</td><td class="text-end">{{ p.cctv.get_jenis_display|default:"-" }}</td></tr>
-        <tr><td>Tinggi / azimuth</td><td class="text-end">{% if p.cctv.spec.tinggi_pasang_m is not None %}{{ p.cctv.spec.tinggi_pasang_m|floatformat:"-1" }} m{% else %}-{% endif %} · {% if p.cctv.spec.azimuth_deg is not None %}{{ p.cctv.spec.azimuth_deg|floatformat:"-1" }}°{% else %}-{% endif %}</td></tr>
-        <tr><td>Jangkauan maks.</td><td class="text-end">{{ jangkauan_m|floatformat:0 }} m</td></tr>
-        <tr><td>Diajukan</td><td class="text-end">{{ p.diajukan_oleh|nama_user }} · {{ p.minggu_label|default:"-" }}</td></tr>
-      </tbody>
-    </table>
-    {% if p.perubahan %}
-    <div class="f-12 f-w-600 mb-1">Perubahan geometri dari IT</div>
-    <ul class="f-12 ps-3 mb-0">
-      {% for label, old, new in p.perubahan %}<li><span class="text-muted">{{ label }}:</span> {{ old }} → <strong>{{ new }}</strong></li>{% endfor %}
-    </ul>
-    {% elif p.jenis == 'baru' %}<p class="f-12 mb-0">CCTV baru: belum ada titik dan coverage sebelumnya.</p>{% endif %}
-    {% if p.keterangan %}<p class="f-12 mt-2 mb-0"><span class="text-muted">Catatan IT:</span> {{ p.keterangan }}</p>{% endif %}
+    <div class="row g-3">
+      <div class="col-lg-7">
+        <h6>{{ p.no_cctv }} · {{ p.cctv.nama }}</h6>
+        <div class="digitasi-info">
+          <div><span>Jenis pengajuan</span>{{ p.get_jenis_display }}</div>
+          <div><span>Site / perusahaan</span>{{ p.cctv.site.kode }} / {{ p.cctv.perusahaan.nama }}</div>
+          <div><span>Lokasi</span>{{ p.cctv.lokasi.nama|default:p.cctv.lokasi_pemasangan|default:"-" }}</div>
+          <div><span>Tipe</span>{{ p.cctv.get_jenis_display|default:"-" }}</div>
+          <div><span>Tinggi / azimuth</span>{% if p.cctv.spec.tinggi_pasang_m is not None %}{{ p.cctv.spec.tinggi_pasang_m|floatformat:"-1" }} m{% else %}-{% endif %} · {% if p.cctv.spec.azimuth_deg is not None %}{{ p.cctv.spec.azimuth_deg|floatformat:"-1" }}°{% else %}-{% endif %}</div>
+          <div><span>Jangkauan maks.</span>{{ jangkauan_m|floatformat:0 }} m</div>
+          <div><span>Diajukan IT</span>{{ p.diajukan_oleh|nama_user }} · {{ p.minggu_label|default:"-" }}</div>
+          <div><span>Versi boundary</span>v{{ p.versi }}</div>
+        </div>
+      </div>
+      <div class="col-lg-5">
+        <h6>Perubahan dari IT</h6>
+        {% if p.perubahan %}
+        <ul class="f-12 ps-3 mb-0">
+          {% for label, old, new in p.perubahan %}<li><span class="text-muted">{{ label }}:</span> {{ old }} → <strong>{{ new }}</strong></li>{% endfor %}
+        </ul>
+        {% elif p.jenis == 'baru' %}<p class="f-12 mb-0">CCTV baru: belum ada titik dan coverage sebelumnya.</p>
+        {% else %}<p class="f-12 text-muted mb-0">-</p>{% endif %}
+        {% if p.keterangan %}<p class="f-12 mt-2 mb-0"><span class="text-muted">Catatan IT:</span> {{ p.keterangan }}</p>{% endif %}
+      </div>
+    </div>
   </div>
 </div>
