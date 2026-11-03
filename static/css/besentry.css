@@ -191,6 +191,11 @@
   font-size: 13px;
 }
 
+/* One item per row, for the changes: a coordinate pair needs the whole width. */
+.digitasi-info-satu {
+  grid-template-columns: 1fr;
+}
+
 .digitasi-info span {
   display: block;
   color: #6c757d;
@@ -348,4 +353,42 @@
 .pengajuan-stepper .selesai .pengajuan-step-no {
   background: #2c323f;
   color: #fff;
+}
+
+/* Warning Safety on the CCTV page: unticked checklist and Safety's note, side by side. */
+.warning-blok {
+  height: 100%;
+  padding: 12px 16px;
+  border: 1px solid #f0e3b8;
+  border-radius: 6px;
+  background: #fffbec;
+}
+
+.warning-judul {
+  margin-bottom: 8px;
+  color: #6c757d;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.warning-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.warning-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.warning-list svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
 }

@@ -398,6 +398,12 @@ class PengajuanCoverage(models.Model):
         return f'{self.get_status_display()} {self.minggu_label}'.strip()
 
     @property
+    def checklist_safety_kurang(self):
+        """Labels of the Safety checklist items left unticked: why it is Approved with warning."""
+        checked = set(self.checklist_safety)
+        return [label for key, label in self.CHECKLIST_SAFETY if key not in checked]
+
+    @property
     def tangkapan_url(self):
         """The screenshot URL; it changes with the file, so browsers never show a cached older one."""
         if not self.tangkapan_layar:

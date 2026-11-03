@@ -31,9 +31,7 @@
   <div class="card-body py-3 d-flex flex-wrap align-items-center gap-2">
     <span class="f-w-600">Status pengajuan:</span>
     <a href="{% url 'cctv:pengajuan' pengajuan.pk %}"><span class="badge badge-{{ pengajuan.badge }} f-14">{{ pengajuan.label }}</span></a>
-    {% if pengajuan.status == 'approved_warning' %}
-    <span class="text-warning f-12"><i data-feather="alert-triangle" class="me-1"></i>Warning Safety: {{ pengajuan.feedback_safety|truncatechars:160 }}</span>
-    {% elif terbuka %}
+    {% if terbuka %}
     <span class="f-12 text-muted">Pengajuan berjalan; CCTV tidak bisa dihapus sampai Approved.</span>
     {% endif %}
   </div>
@@ -180,6 +178,34 @@
   {% endif %}
 </div>
 
+{% if pengajuan.status == 'approved_warning' %}
+<!-- Warning Safety -->
+<div class="card">
+  <div class="card-header pb-0"><h5><i data-feather="alert-triangle" class="me-1 text-warning"></i>Warning Safety</h5></div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="warning-blok">
+          <div class="warning-judul">Checklist Safety yang tidak terpenuhi</div>
+          <ul class="warning-list">
+            {% for label in pengajuan.checklist_safety_kurang %}
+            <li><i data-feather="x-circle" class="text-danger"></i><span>{{ label }}</span></li>
+            {% empty %}<li class="text-muted">-</li>{% endfor %}
+          </ul>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="warning-blok">
+          <div class="warning-judul">Catatan Safety</div>
+          <p class="mb-0">{{ pengajuan.feedback_safety|linebreaksbr|default:"-" }}</p>
+        </div>
+      </div>
+    </div>
+    <p class="f-12 text-muted mt-3 mb-0">Approved with warning {{ pengajuan.minggu_label }}. Warning hilang setelah pengajuan berikutnya Approved.</p>
+  </div>
+</div>
+{% endif %}
+
 <!-- Riwayat -->
 <div class="card">
   <div class="card-header pb-0"><h5><i data-feather="clock" class="me-1"></i>Riwayat perubahan</h5></div>
@@ -196,7 +222,7 @@
         <span class="f-12 text-muted" title="{{ entry.date|date:'d M Y H:i:s' }}">{{ entry.date|date:"d M Y H:i" }}</span>
       </div>
       {% if entry.changes %}
-      <ul class="f-12 mb-0 mt-1 ps-3">
+      <ul class="list-unstyled f-12 mb-0 mt-1">
         {% for change in entry.changes %}
         <li><span class="text-muted">{{ change.field|capfirst }}:</span> {{ change.old }} → <strong>{{ change.new }}</strong></li>
         {% endfor %}
@@ -216,6 +242,7 @@
   import * as maplibregl from 'maplibre-gl';
   import { createMap } from 'besentry/peta';
   import { addCoverage, PROPOSED_COLOR } from 'besentry/coverage-map';
+  import { addOrthophotoLayer, OrthophotoControl } from 'besentry/orthophoto-layer';
 
   const el = document.getElementById('peta-cctv');
   const geometry = JSON.parse(document.getElementById('data-coverage').textContent);
@@ -223,7 +250,13 @@
   const ring = geometry ? (geometry.type === 'MultiPolygon' ? geometry.coordinates[0][0] : geometry.coordinates[0]) : [];
   const map = createMap(maplibregl, { container: el, center: center || ring[0], zoom: 15 });
   if (center) new maplibregl.Marker({ color: '#24695c' }).setLngLat(center).addTo(map);
-  if (geometry) map.once('style.load', () => addCoverage(maplibregl, map, { geometry, color: PROPOSED_COLOR }));
+  map.once('style.load', () => {
+    // Under the coverage: it goes below the basemap labels, the coverage on top of everything.
+    addOrthophotoLayer(map, { apiUrl: "{% url 'orthophoto:current' %}" })
+      .then((ortho) => { if (ortho) map.addControl(new OrthophotoControl(ortho), 'top-right'); })
+      .catch(() => null);
+    if (geometry) addCoverage(maplibregl, map, { geometry, color: PROPOSED_COLOR });
+  });
 </script>
 {% endif %}
 {% if can_akses %}

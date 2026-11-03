@@ -18,13 +18,14 @@
       </div>
       <div class="col-lg-5">
         <h6>Perubahan dari IT</h6>
-        {% if p.perubahan %}
-        <ul class="f-12 ps-3 mb-0">
-          {% for label, old, new in p.perubahan %}<li><span class="text-muted">{{ label }}:</span> {{ old }} → <strong>{{ new }}</strong></li>{% endfor %}
-        </ul>
-        {% elif p.jenis == 'baru' %}<p class="f-12 mb-0">CCTV baru: belum ada titik dan coverage sebelumnya.</p>
-        {% else %}<p class="f-12 text-muted mb-0">-</p>{% endif %}
-        {% if p.keterangan %}<p class="f-12 mt-2 mb-0"><span class="text-muted">Catatan IT:</span> {{ p.keterangan }}</p>{% endif %}
+        <div class="digitasi-info digitasi-info-satu">
+          {% for label, old, new in p.perubahan %}
+          <div><span>{{ label }}</span>{{ old }} → <strong>{{ new }}</strong></div>
+          {% empty %}
+          <div>{% if p.jenis == 'baru' %}CCTV baru: belum ada titik dan coverage sebelumnya.{% else %}<span class="d-inline">-</span>{% endif %}</div>
+          {% endfor %}
+          {% if p.keterangan %}<div><span>Catatan IT</span>{{ p.keterangan }}</div>{% endif %}
+        </div>
       </div>
     </div>
   </div>

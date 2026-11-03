@@ -240,7 +240,10 @@ class FlowTests(FlowMixin, TestCase):
         approved = self.review(pengajuan, 'safety', 'approve', SAFETY_ALL[:3], 'Lensa berdebu')
         self.assertEqual((approved.status, approved.feedback_safety), ('approved_warning', 'Lensa berdebu'))
         self.client.force_login(self.it)
-        self.assertContains(self.client.get(reverse('cctv:detail', args=[self.cctv.pk])), 'Warning Safety')
+        detail = self.client.get(reverse('cctv:detail', args=[self.cctv.pk]))
+        self.assertContains(detail, 'Warning Safety')
+        self.assertContains(detail, PengajuanCoverage.CHECKLIST_SAFETY[3][1])  # the one left unticked
+        self.assertNotContains(detail, PengajuanCoverage.CHECKLIST_SAFETY[1][1])
 
     def test_return_to_it_restarts_with_a_new_week(self):
         pengajuan = self.review(self.review(self.digitasi(self.moved()), 'sgi', 'safety', SGI_ALL),

@@ -41,7 +41,7 @@
         {% if p.jenis == 'ubah' %}<p class="f-12 mb-0">Tidak ada perubahan geometri, jadi disetujui otomatis tanpa digitasi.</p>{% endif %}
       </div>
     </div>
-    {% if p.cctv_id %}<a class="btn btn-light w-100" href="{% url 'cctv:detail' p.cctv_id %}">Kembali ke data CCTV</a>{% endif %}
+    {% if p.cctv_id %}<a class="btn btn-light w-100 mb-3" href="{% url 'cctv:detail' p.cctv_id %}">Kembali ke data CCTV</a>{% endif %}
   </div>
 </div>
 {% endif %}
