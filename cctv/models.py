@@ -106,8 +106,6 @@ class Cctv(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.LIVE)
     kondisi = models.CharField(max_length=20, choices=Kondisi.choices, default=Kondisi.BAIK)
     posisi = models.PointField(srid=4326, null=True, blank=True)
-    # Set only from an approved registrasi; older boundaries are in the history.
-    boundary = models.MultiPolygonField(srid=4326, null=True, blank=True)
     connected = models.BooleanField(default=False)
     mirrored = models.BooleanField(default=False)
     auto_alert = models.BooleanField('Fitur auto alert', default=False)

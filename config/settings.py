@@ -62,7 +62,6 @@ INSTALLED_APPS = [
     'orthophoto',
     'cctv',
     'cctv_log',
-    'registrasi',
     'pengaturan',
     'notifikasi',
 ]
