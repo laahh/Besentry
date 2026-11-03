@@ -212,8 +212,8 @@ class CakupanCctv(models.Model):
     bisa_ubah = models.BooleanField('Boleh tambah/ubah', default=False)
 
     class Meta:
-        verbose_name = 'cakupan akses CCTV'
-        verbose_name_plural = 'cakupan akses CCTV'
+        verbose_name = 'Coverage CCTV'
+        verbose_name_plural = 'Coverage CCTV'
         constraints = [
             models.UniqueConstraint(
                 fields=['group', 'site', 'perusahaan'], nulls_distinct=False, name='cakupan_cctv_unik',

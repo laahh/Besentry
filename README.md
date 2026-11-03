@@ -117,16 +117,16 @@ Perusahaan SID dicocokkan ke `Perusahaan` yang sudah ada (dari data CCTV) lewat 
 | Siapa | Melihat | Tambah/ubah | Hapus | IP & password |
 |---|---|---|---|---|
 | Superuser, `admin-hazard-motion` | Semua | Semua | Ya | Superuser saja |
-| Role dengan cakupan, mis. *CCTV BMO 2 - PT Pamapersada Nusantara* | Hanya cakupannya | Jika cakupan *Boleh tambah/ubah* | Tidak | Jika juga punya role IT |
-| `hazard-motion-it-pama`, `hazard-motion-it-mtl` | Semua (cakupan bawaan migrasi, bisa dipersempit) | Ya | Tidak | Ya, dalam cakupannya |
-| User tanpa cakupan | Menu tidak tampil, halaman 403 | | | |
+| Role dengan Coverage CCTV, mis. *CCTV BMO 2 - PT Pamapersada Nusantara* | Hanya Coverage CCTV-nya | Jika Coverage CCTV *Boleh tambah/ubah* | Tidak | Jika juga punya role IT |
+| `hazard-motion-it-pama`, `hazard-motion-it-mtl` | Semua (Coverage CCTV bawaan migrasi, bisa dipersempit) | Ya | Tidak | Ya, dalam Coverage CCTV-nya |
+| User tanpa Coverage CCTV | Menu tidak tampil, halaman 403 | | | |
 
 Diatur di menu **Pengaturan** (khusus superuser dan `admin-hazard-motion`):
 
-- **Role & Akses** (`/pengaturan/role/`): buat, ubah, atau hapus role dan cakupan CCTV-nya, serta buat role otomatis per site + perusahaan. Role bawaan sistem tidak bisa diganti nama atau dihapus.
+- **Role & Akses** (`/pengaturan/role/`): buat, ubah, atau hapus role dan Coverage CCTV-nya, serta buat role otomatis per site + perusahaan. Role bawaan sistem tidak bisa diganti nama atau dihapus.
 - **Pengguna** (`/pengaturan/pengguna/`): cari pengguna, lalu centang role-nya. Admin tidak bisa melepas role admin dari akunnya sendiri.
 
-Satu baris cakupan = satu site + perusahaan. Site atau perusahaan kosong berarti semua. Satu role boleh punya beberapa baris; user boleh punya beberapa role. CCTV di luar cakupan menjawab 404 (keberadaannya tidak terlihat).
+Satu baris Coverage CCTV = satu site + perusahaan. Site atau perusahaan kosong berarti semua. Satu role boleh punya beberapa baris; user boleh punya beberapa role. CCTV di luar Coverage CCTV menjawab 404 (keberadaannya tidak terlihat).
 
 Role per pasangan site + perusahaan juga bisa dibuat dari terminal (tambah `--bisa-ubah` jika role boleh mengubah):
 
@@ -150,7 +150,7 @@ python manage.py buat_role_cctv
 
 **Verifikasi coverage** (`/cctv/coverage/`, menu *Verifikasi Coverage*). Perubahan polygon coverage CCTV (Baru / Dipindah / Dicabut) melewati dua tahap review sebelum aktif (`cctv/coverage.py`):
 
-1. Pengguna dengan cakupan *boleh ubah* mengajukan: pilih CCTV, lampirkan tangkapan layar, gambar polygon di peta (klik untuk titik, geser untuk mengubah, atau salin versi aktif).
+1. Pengguna dengan Coverage CCTV *boleh ubah* mengajukan: pilih CCTV, lampirkan tangkapan layar, gambar polygon di peta (klik untuk titik, geser untuk mengubah, atau salin versi aktif).
 2. Sistem memvalidasi geometri: polygon valid, di wilayah Berau, maks. 1.000 ha, titik terjauh ≤ radius kamera × 1,5 (2 km jika radius kosong).
 3. **SGI** lalu **Safety** (`admin-hazard-motion`/superuser) mencentang semua checklist untuk menyetujui, atau mengembalikan dengan catatan wajib. Pengajuan yang dikembalikan direvisi lalu dikirim ulang.
 4. Setelah Safety menyetujui, polygon menjadi `CctvCoverage` minggu ini (versi aktif). Untuk *Dicabut*, coverage minggu ini disimpan kosong.

@@ -8,7 +8,7 @@ from .models import CakupanCctv, Cctv, CctvCoverage, ControlRoom, PengajuanCover
 class CakupanCctvInline(admin.TabularInline):
     model = CakupanCctv
     extra = 0
-    verbose_name_plural = 'Cakupan akses CCTV (site + perusahaan yang boleh dilihat role ini)'
+    verbose_name_plural = 'Coverage CCTV (site + perusahaan yang boleh dilihat role ini)'
 
 
 admin.site.unregister(Group)

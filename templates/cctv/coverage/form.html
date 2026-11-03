@@ -19,7 +19,7 @@
       <div class="col-md-6">
         <label class="form-label" for="pilih-no">No. CCTV</label>
         <input class="form-control" id="pilih-no" name="no" value="{{ request.GET.no|default:'' }}" placeholder="mis. LMO-BC-0001" required autofocus>
-        {% if request.GET.no %}<div class="text-danger f-12 mt-1">No. CCTV tidak ditemukan atau di luar cakupan ubah Anda.</div>{% endif %}
+        {% if request.GET.no %}<div class="text-danger f-12 mt-1">No. CCTV tidak ditemukan atau di luar Coverage CCTV yang boleh Anda ubah.</div>{% endif %}
       </div>
       <div class="col-md-3"><button class="btn btn-primary" type="submit">Muat</button></div>
     </form>

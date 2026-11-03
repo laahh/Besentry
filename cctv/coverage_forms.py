@@ -49,7 +49,7 @@ class PengajuanForm(BootstrapMixin, forms.ModelForm):
         editable = self.scope.filter(Cctv.objects.select_related('spec'), edit=True)
         self.cctv = editable.filter(no_cctv__iexact=no_cctv).first()
         if self.cctv is None:
-            raise forms.ValidationError('No. CCTV tidak ditemukan atau di luar cakupan ubah Anda.')
+            raise forms.ValidationError('No. CCTV tidak ditemukan atau di luar Coverage CCTV yang boleh Anda ubah.')
         if PengajuanCoverage.objects.filter(cctv=self.cctv).exclude(status=PengajuanCoverage.Status.SELESAI).exists():
             raise forms.ValidationError('CCTV ini masih punya pengajuan yang belum selesai.')
         return self.cctv.no_cctv
