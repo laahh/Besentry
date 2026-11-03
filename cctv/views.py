@@ -1,25 +1,22 @@
 import csv
+import json
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import BooleanField, Count, ExpressionWrapper, F, FloatField, Func, Q
-from django.db.models.deletion import ProtectedError
+from django.db.models import BooleanField, Count, ExpressionWrapper, F, FloatField, Func, OuterRef, Q, Subquery
 from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from core.models import DetailLokasi, Perusahaan, Site
-from notifikasi import services as notifikasi
 
 from . import coverage, history
 from .access import get_scope
-from .forms import CctvAksesForm, CctvForm, CctvSpecForm
-from .models import Cctv, CctvAkses, PengajuanCoverage
+from .models import Cctv, CctvAkses, PengajuanCoverage, minggu_label
 
 PER_PAGE = 50
 RIWAYAT_LIMIT = 30
@@ -65,6 +62,17 @@ def _filtered(scope, params):
         queryset = queryset.filter(
             Q(no_cctv__icontains=q) | Q(nama__icontains=q) | Q(lokasi_pemasangan__icontains=q)
         )
+    # The latest change request decides the status shown in the list (and filtered on).
+    latest = PengajuanCoverage.objects.filter(cctv=OuterRef('pk')).order_by('-dibuat', '-pk')
+    queryset = queryset.annotate(
+        pengajuan_id=Subquery(latest.values('pk')[:1]),
+        pengajuan_status=Subquery(latest.values('status')[:1]),
+        pengajuan_minggu=Subquery(latest.values('minggu')[:1]),
+    )
+    pengajuan = params.get('pengajuan', '')
+    if pengajuan in PengajuanCoverage.Status.values:
+        selected['pengajuan'] = pengajuan
+        queryset = queryset.filter(pengajuan_status=pengajuan)
     return queryset, selected
 
 
@@ -84,6 +92,12 @@ def index(request):
     paginator = Paginator(rows, PER_PAGE)
     paginator.count = stats['total']  # already counted above; saves a COUNT query
     page = paginator.get_page(request.GET.get('page'))
+    Status = PengajuanCoverage.Status
+    for cctv in page:
+        if cctv.pengajuan_status:
+            cctv.pengajuan_label = f'{Status(cctv.pengajuan_status).label} {minggu_label(cctv.pengajuan_minggu)}'.strip()
+            cctv.pengajuan_badge = PengajuanCoverage.BADGE[cctv.pengajuan_status]
+            cctv.pengajuan_tab = PengajuanCoverage.TAHAP[cctv.pengajuan_status]
 
     # Filter options: only sites/perusahaan with CCTV the user can see (one subquery each).
     # Perusahaan also holds every SID company, most of which have no CCTV.
@@ -98,7 +112,12 @@ def index(request):
         'sites': sites,
         'perusahaan_list': perusahaan,
         'choices': {name: choices.choices for name, choices in CHOICE_FILTERS.items()},
+        'status_pengajuan': PengajuanCoverage.Status.choices,
         'scope': scope,
+        # New CCTV still in Draft IT have no row in the list yet.
+        'draft_baru': PengajuanCoverage.objects.filter(
+            cctv__isnull=True, **({} if scope.full else {'diajukan_oleh': request.user}),
+        ).order_by('-diubah')[:20],
     })
 
 
@@ -203,97 +222,39 @@ def detail(request, pk):
         )),
         pk=pk,
     )
+    pengajuan = coverage.latest_request(cctv)
+    terbuka = pengajuan if pengajuan and pengajuan.terbuka else None
     return render(request, 'cctv/detail.html', {
         'cctv': cctv,
         'spec': getattr(cctv, 'spec', None),
         'akses': _akses(pk) if scope.can_see_akses else None,
         'can_akses': scope.can_see_akses,
-        'can_edit': scope.can_edit(cctv),
-        'can_delete': scope.can_delete,
+        'can_ajukan': scope.can_edit(cctv),
+        'can_delete': scope.can_delete(cctv) and terbuka is None,
+        'pengajuan': pengajuan,
+        'terbuka': terbuka,
+        'coverage': json.loads(boundary.geojson) if (boundary := coverage.map_coverage(cctv)) else None,
         'riwayat': history.riwayat(pk, RIWAYAT_LIMIT),
     })
-
-
-def _form(request, scope, cctv=None):
-    can_akses = scope.can_see_akses
-    data = request.POST or None
-    spec = getattr(cctv, 'spec', None) if cctv else None
-    akses = _akses(cctv.pk) if cctv and can_akses else None
-
-    form = CctvForm(data, instance=cctv, scope=scope)
-    spec_form = CctvSpecForm(data, instance=spec, prefix='spec')
-    akses_form = CctvAksesForm(data, instance=akses, prefix='akses') if can_akses else None
-    forms = [f for f in (form, spec_form, akses_form) if f]
-
-    if request.method == 'POST' and all(f.is_valid() for f in forms):
-        before = notifikasi.location_snapshot(cctv) if cctv else None
-        with transaction.atomic(), transaction.atomic(using='log'):
-            saved = form.save()
-            # Spec/akses rows are only created once something is filled in.
-            for related_form, existing in ((spec_form, spec), (akses_form, akses)):
-                if related_form and (existing or related_form.has_changed()):
-                    related_form.instance.cctv = saved
-                    related_form.save()
-            # New CCTV, or a changed location: SGI gets a digitisation task and the PICs a message
-            # linking to it (sent after commit).
-            sent = []
-            changes = notifikasi.location_changes(before, saved) if before else None
-            if before is None or changes:
-                jenis = PengajuanCoverage.Jenis.BARU if before is None else PengajuanCoverage.Jenis.DIPINDAH
-                catatan = '; '.join(f'{label}: {old} → {new}' for label, old, new in changes or [])
-                task = coverage.create_digitasi_task(saved, request.user, jenis, catatan or 'CCTV baru')
-                sent = notifikasi.notify_cctv(saved, request.user, before=before, changes=changes,
-                                              path=f"{reverse('cctv:digitasi_index')}?id={task.pk}")
-        messages.success(request, f'CCTV {saved.no_cctv} disimpan.')
-        if sent:
-            # Already delivered when sending is synchronous; otherwise still queued.
-            counts = notifikasi.status_counts(sent)
-            level = messages.warning if counts['gagal'] else messages.info
-            level(request, f"Notifikasi ke {len({n.pic_id for n in sent})} PIC SGI: "
-                           f"{counts['terkirim']} terkirim, {counts['gagal']} gagal, {counts['menunggu']} di antrean.")
-        return redirect('cctv:detail', pk=saved.pk)
-
-    return render(request, 'cctv/form.html', {
-        'cctv': cctv,
-        'form': form,
-        'spec_form': spec_form,
-        'akses_form': akses_form,
-        'ada_password': bool(akses and akses.ada_password),
-    })
-
-
-@login_required
-def create(request):
-    scope = _scope(request.user)
-    if not scope.can_create:
-        raise PermissionDenied
-    return _form(request, scope)
-
-
-@login_required
-def update(request, pk):
-    scope = _scope(request.user)
-    cctv = get_object_or_404(scope.filter(Cctv.objects.select_related('spec')), pk=pk)
-    if not scope.can_edit(cctv):
-        raise PermissionDenied
-    return _form(request, scope, cctv)
 
 
 @login_required
 @require_POST
 def delete(request, pk):
     scope = _scope(request.user)
-    if not scope.can_delete:
+    cctv = get_object_or_404(scope.filter(Cctv.objects.all()), pk=pk)
+    if not scope.can_delete(cctv):
         raise PermissionDenied
-    cctv = get_object_or_404(Cctv, pk=pk)
-    try:
-        with transaction.atomic(), transaction.atomic(using='log'):
-            cctv.delete()
-    except ProtectedError:
-        messages.error(request, f'CCTV {cctv.no_cctv} masih punya data coverage atau pengajuan coverage, '
-                                'jadi tidak bisa dihapus.')
+    open_request = coverage.open_request(cctv)
+    if open_request:
+        messages.error(request, f'CCTV {cctv.no_cctv} masih punya pengajuan berjalan '
+                                f'({open_request.get_status_display()}). Selesaikan sampai Approved dulu.')
         return redirect('cctv:detail', pk=pk)
-    messages.success(request, f'CCTV {cctv.no_cctv} dihapus.')
+    # Its coverage and finished requests go with it, so the boundary leaves the map too.
+    # Past weekly snapshots keep it.
+    with transaction.atomic(), transaction.atomic(using='log'):
+        cctv.delete()
+    messages.success(request, f'CCTV {cctv.no_cctv} dan coverage-nya dihapus.')
     return redirect('cctv:index')
 
 

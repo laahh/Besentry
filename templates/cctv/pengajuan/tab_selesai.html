@@ -1,0 +1,37 @@
+{% load pengguna %}
+{# Tab 5: the result once Safety decided (or the system, when nothing geometric changed). #}
+{% if tab not in tab_terbuka %}
+<div class="alert alert-light">Pengajuan ini belum selesai: sekarang {{ p.get_status_display }}.</div>
+{% else %}
+<div class="row">
+  <div class="col-xl-8">
+    <div class="card verif-card">
+      <div class="card-body">
+        <h6 class="mb-3">Coverage yang berlaku · {{ p.no_cctv }}</h6>
+        <div class="peta-gambar" id="peta-sesudah"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-4">
+    <div class="card verif-card">
+      <div class="card-body">
+        <h6>Hasil</h6>
+        {% if p.status == 'approved_warning' %}
+        <div class="alert alert-warning f-12"><i data-feather="alert-triangle" class="me-1"></i>Approved with warning: tidak semua checklist Safety terpenuhi. Warning hilang setelah pengajuan berikutnya Approved.</div>
+        {% endif %}
+        <table class="table verif-meta mb-2">
+          <tbody>
+            <tr><td>Status</td><td class="text-end"><span class="badge badge-{{ p.badge }}">{{ p.label }}</span></td></tr>
+            <tr><td>Jenis</td><td class="text-end">{{ p.get_jenis_display }}</td></tr>
+            <tr><td>Selesai</td><td class="text-end">{{ p.selesai|date:"d M Y H:i"|default:"-" }}</td></tr>
+            <tr><td>Coverage</td><td class="text-end">{% if p.jenis == 'ubah' %}tidak berubah{% else %}v{{ p.versi }} · {{ luas_sesudah|floatformat:2|default:"-" }} ha{% endif %}</td></tr>
+          </tbody>
+        </table>
+        {% if p.feedback_safety %}<p class="f-12 mb-0"><span class="text-muted">Feedback Safety:</span> {{ p.feedback_safety }}</p>{% endif %}
+        {% if p.jenis == 'ubah' %}<p class="f-12 mb-0">Tidak ada perubahan geometri, jadi disetujui otomatis tanpa digitasi.</p>{% endif %}
+      </div>
+    </div>
+    {% if p.cctv_id %}<a class="btn btn-light w-100" href="{% url 'cctv:detail' p.cctv_id %}">Kembali ke data CCTV</a>{% endif %}
+  </div>
+</div>
+{% endif %}

@@ -1,34 +1,40 @@
-"""Coverage change requests, reviewed by SGI and then Safety; approval activates the polygon.
+"""CCTV change requests: IT -> Survey Mitra -> Survey BC -> Safety BC, one CCTV per request.
 
-Two ways in:
-    create_digitasi_task() -> Menunggu digitasi   IT added or moved a CCTV (automatic, no polygon yet)
-        save_digitasi(kirim=True) -> Menunggu Safety   SGI drew the polygon (geometry check passed)
-    submit()               -> Menunggu SGI        IT drew the polygon themselves
-        review() at SGI    -> Menunggu Safety, or Dikembalikan to IT; resubmit() -> Menunggu SGI
+    save_draft()        Draft IT / Return to IT: IT's form is kept, nothing reaches the CCTV yet
+    continue_request()  IT's changes reach the CCTV. No geometry change: Approved at once.
+                        Otherwise Waiting Survey Mitra, labelled with this week.
+    save_digitasi()     Survey Mitra's boundary (drawn or SHP); kirim -> Waiting Survey BC
+    review_sgi()        Survey BC: -> Waiting Safety BC (whole checklist) / Return to Survey Mitra / Return to IT
+    review_safety()     Safety BC: -> Approved (whole checklist) / Approved with warning / Return to IT / Return to SGI
 
-    review() at Safety     -> Selesai: the polygon becomes this week's CctvCoverage
-                           -> or back to Menunggu digitasi: SGI redraws it
+There is no cancelling: every request runs until it is approved.
 """
 
 import datetime
-import hashlib
-from dataclasses import dataclass
+import tempfile
+import zipfile
 
+from django.contrib.gis.gdal import DataSource, GDALException, OGRGeometry
 from django.contrib.gis.geos import GEOSException, GEOSGeometry, MultiPolygon, Point, Polygon
-from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
 
-from . import homography
-from .models import CctvCoverage, KalibrasiKamera, PengajuanCoverage, RiwayatPengajuan
+from .models import CctvCoverage, PengajuanCoverage, RiwayatPengajuan
 
 UTM_50N = 32650  # metres, for area and distance around Berau
-# Rough extent of the Berau operations; anything outside is a digitising mistake.
+# Rough extent of the Berau operations, used while no orthophoto is published.
 WILAYAH = Polygon.from_bbox((115.5, 0.5, 119.5, 3.5))
 WILAYAH.srid = 4326
-LUAS_MAKS_HA = 1000
+LUAS_MAKS_HA = 200
 JARAK_DEFAULT_M = 2000
 JARAK_FAKTOR = 1.5  # allowed distance from the camera = radius x this
+MOVE_THRESHOLD_M = 1  # GPS jitter below this is not a move
+# A change to any of these sends the request through digitisation; anything else is approved at once.
+GEOMETRY_FIELDS = ('posisi', 'jenis')
+GEOMETRY_SPEC_FIELDS = ('radius_m', 'azimuth_deg', 'tilt_deg', 'tinggi_pasang_m')
+SHP_PARTS = ('.shp', '.shx', '.dbf', '.prj')
+SHP_MAX_MB = 50
+
 Status = PengajuanCoverage.Status
 Aksi = RiwayatPengajuan.Aksi
 
@@ -37,15 +43,84 @@ class GeometryError(ValueError):
     pass
 
 
-def active_coverage(cctv):
-    """(geometry or None, version number). Version counts every activation so far."""
+class ReviewError(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message
+
+
+def this_monday():
+    today = timezone.localdate()
+    return today - datetime.timedelta(days=today.weekday())
+
+
+def open_request(cctv):
+    return PengajuanCoverage.objects.filter(cctv=cctv).exclude(status__in=PengajuanCoverage.SELESAI).first()
+
+
+def latest_request(cctv):
+    return PengajuanCoverage.objects.filter(cctv=cctv).order_by('-dibuat', '-pk').first()
+
+
+def approved_coverage(cctv):
+    """(geometry or None, number of approved versions)."""
     rows = CctvCoverage.objects.filter(cctv=cctv)
     latest = rows.order_by('-minggu').only('geom').first()
     return (latest.geom if latest else None), rows.count()
 
 
+def map_coverage(cctv):
+    """The boundary the map shows: Survey Mitra's latest one while a request is open, else the approved one."""
+    request = open_request(cctv)
+    if request and request.geom:
+        return request.geom
+    return approved_coverage(cctv)[0]
+
+
 def luas_ha(geom):
     return geom.transform(UTM_50N, clone=True).area / 10_000 if geom else None
+
+
+# --- Geometry ----------------------------------------------------------------------------------
+
+def geometry_state(cctv):
+    """The fields that decide whether a change needs a new boundary."""
+    spec = getattr(cctv, 'spec', None)
+    return {
+        'posisi': cctv.posisi,
+        'jenis': cctv.jenis,
+        **{name: getattr(spec, name, None) for name in GEOMETRY_SPEC_FIELDS},
+    }
+
+
+def _moved(old, new):
+    if old is None or new is None:
+        return old != new
+    return old.transform(UTM_50N, clone=True).distance(new.transform(UTM_50N, clone=True)) >= MOVE_THRESHOLD_M
+
+
+GEOMETRY_LABELS = {
+    'posisi': 'Koordinat', 'jenis': 'Jenis', 'radius_m': 'Radius (m)', 'azimuth_deg': 'Azimuth (°)',
+    'tilt_deg': 'Tilt (°)', 'tinggi_pasang_m': 'Tinggi pasang (m)',
+}
+
+
+def _shown(value):
+    if value is None or value == '':
+        return '-'
+    if isinstance(value, Point):
+        return f'{value.y:.6f}, {value.x:.6f}'
+    return str(value)
+
+
+def geometry_changes(before, after):
+    """[[label, before, after]] for the geometry fields that changed; empty = nothing to digitise."""
+    changes = []
+    for name, label in GEOMETRY_LABELS.items():
+        changed = _moved(before[name], after[name]) if name == 'posisi' else before[name] != after[name]
+        if changed:
+            changes.append([label, _shown(before[name]), _shown(after[name])])
+    return changes
 
 
 def parse_geometry(text):
@@ -63,108 +138,93 @@ def parse_geometry(text):
     return geom
 
 
+def _is_utm_50n(srs):
+    try:
+        srs.identify_epsg()
+    except GDALException:
+        pass
+    if srs.srid == UTM_50N:
+        return True
+    name = (srs.name or '').upper().replace(' ', '_')
+    return 'UTM' in name and 'ZONE_50N' in name and 'WGS' in name
+
+
+def read_shp_zip(upload):
+    """A zipped shapefile with exactly one polygon in UTM 50N -> MultiPolygon in EPSG:4326."""
+    try:
+        archive = zipfile.ZipFile(upload)
+    except zipfile.BadZipFile as exc:
+        raise GeometryError('File harus berupa .zip berisi shapefile.') from exc
+    with archive:
+        members = [m for m in archive.infolist() if not m.is_dir()]
+        if sum(m.file_size for m in members) > SHP_MAX_MB * 1024 * 1024:
+            raise GeometryError(f'Isi zip lebih dari {SHP_MAX_MB} MB.')
+        shapes = [m for m in members if m.filename.lower().endswith('.shp')]
+        if len(shapes) != 1:
+            raise GeometryError(f'Zip harus berisi tepat 1 file .shp (ada {len(shapes)}).')
+        stem = shapes[0].filename[:-4].lower()
+        parts = {ext: next((m for m in members if m.filename.lower() == stem + ext), None) for ext in SHP_PARTS}
+        missing = [ext for ext, member in parts.items() if member is None]
+        if missing:
+            raise GeometryError(f'Shapefile tidak lengkap, tidak ada {", ".join(missing)}.')
+        with tempfile.TemporaryDirectory() as folder:
+            # Written under fixed names: no path from the zip ever reaches the disk.
+            for ext, member in parts.items():
+                with archive.open(member) as source, open(f'{folder}/boundary{ext}', 'wb') as target:
+                    target.write(source.read())
+            return _read_shapefile(f'{folder}/boundary.shp')
+
+
+def _read_shapefile(path):
+    try:
+        layer = DataSource(path)[0]
+    except (GDALException, IndexError) as exc:
+        raise GeometryError('Shapefile tidak terbaca.') from exc
+    if layer.num_feat != 1:
+        raise GeometryError(f'Shapefile harus berisi tepat 1 feature (ada {layer.num_feat}).')
+    if layer.srs is None or not _is_utm_50n(layer.srs):
+        raise GeometryError('CRS shapefile harus WGS 84 / UTM zone 50N (EPSG:32650).')
+    ogr = layer[0].geom
+    # Base type without the Z/M flags (3 = polygon, 6 = multipolygon).
+    if (ogr.geom_type.num & 0x7FFFFFFF) % 1000 not in (3, 6):
+        raise GeometryError(f'Feature harus berupa polygon (bukan {ogr.geom_type.name}).')
+    flat = OGRGeometry(ogr.wkt)
+    flat.set_3d(False)
+    flat.set_measured(False)
+    geom = GEOSGeometry(flat.wkb, srid=UTM_50N).transform(4326, clone=True)
+    return MultiPolygon(geom, srid=4326) if isinstance(geom, Polygon) else geom
+
+
+def _batas_site():
+    """Where a boundary may lie: the active orthophoto's extent, else the Berau operations."""
+    from orthophoto.models import Orthophoto
+    ortho = Orthophoto.objects.filter(aktif=True).only('batas').first()
+    return (ortho.batas, 'extent orthophoto') if ortho and ortho.batas else (WILAYAH, 'wilayah operasi Berau')
+
+
 def validate_geometry(geom, cctv):
-    """The automatic check before a request reaches SGI. Returns a short summary."""
+    """The automatic check before Survey BC sees a boundary. Returns a short summary."""
     if geom is None or geom.empty:
-        raise GeometryError('Gambar polygon coverage di peta.')
+        raise GeometryError('Gambar polygon coverage di peta atau upload SHP.')
     if not geom.valid:
         raise GeometryError(f'Polygon tidak valid ({geom.valid_reason}). Pastikan garis tidak saling memotong.')
-    if not WILAYAH.contains(geom):
-        raise GeometryError('Polygon berada di luar wilayah operasi Berau.')
+    batas, nama_batas = _batas_site()
+    if not batas.contains(geom):
+        raise GeometryError(f'Polygon berada di luar batas site ({nama_batas}).')
     luas = luas_ha(geom)
-    if luas > LUAS_MAKS_HA:
-        raise GeometryError(f'Luas {luas:,.1f} ha terlalu besar (maks. {LUAS_MAKS_HA} ha).')
+    if luas >= LUAS_MAKS_HA:
+        raise GeometryError(f'Luas {luas:,.1f} ha terlalu besar (harus kurang dari {LUAS_MAKS_HA} ha).')
 
     summary = f'luas {luas:,.2f} ha'
     if cctv.posisi:
-        spec = getattr(cctv, 'spec', None)
-        radius = spec.radius_m if spec and spec.radius_m else None
-        batas = radius * JARAK_FAKTOR if radius else JARAK_DEFAULT_M
+        batas_m = jangkauan_m(cctv)
         local = geom.transform(UTM_50N, clone=True)
         camera = cctv.posisi.transform(UTM_50N, clone=True)
         jarak = max(Point(x, y, srid=UTM_50N).distance(camera) for x, y in local.convex_hull.coords[0])
-        if jarak > batas:
-            raise GeometryError(
-                f'Titik terjauh polygon {jarak:,.0f} m dari kamera, melebihi batas {batas:,.0f} m '
-                f'({"radius " + format(radius, ",.0f") + " m × " + str(JARAK_FAKTOR) if radius else "default"}).'
-            )
+        if jarak > batas_m:
+            raise GeometryError(f'Titik terjauh polygon {jarak:,.0f} m dari kamera, melebihi batas {batas_m:,.0f} m.')
         summary += f', titik terjauh {jarak:,.0f} m dari kamera'
     return summary
-
-
-def _check_geometry(jenis, geom, cctv):
-    if jenis == PengajuanCoverage.Jenis.DICABUT:
-        return None  # nothing to draw: the active coverage is withdrawn
-    return validate_geometry(geom, cctv)
-
-
-def _log(pengajuan, aksi, user=None, catatan=''):
-    RiwayatPengajuan.objects.create(pengajuan=pengajuan, aksi=aksi, user=user, catatan=catatan)
-
-
-@transaction.atomic
-def submit(pengajuan, user, orthophoto=None):
-    """Save a new request (unsaved instance with cctv, jenis, geom, ...) and send it to SGI."""
-    summary = _check_geometry(pengajuan.jenis, pengajuan.geom, pengajuan.cctv)
-    _, versi = active_coverage(pengajuan.cctv)
-    pengajuan.versi = versi + 1
-    pengajuan.status = Status.MENUNGGU_SGI
-    pengajuan.diajukan_oleh = user
-    pengajuan.orthophoto = orthophoto
-    if pengajuan.geom:
-        pengajuan.digitasi_oleh, pengajuan.digitasi_pada = user, timezone.now()
-    pengajuan.save()
-    _log(pengajuan, Aksi.DIAJUKAN, user, pengajuan.get_jenis_display().lower())
-    if summary:
-        _log(pengajuan, Aksi.DIGITASI, user, f'v{pengajuan.versi}')
-        _log(pengajuan, Aksi.VALIDASI, None, summary)
-    return pengajuan
-
-
-@transaction.atomic
-def resubmit(pengajuan, user, orthophoto=None):
-    """Send a returned request back to SGI after it was revised; the checklists start over."""
-    summary = _check_geometry(pengajuan.jenis, pengajuan.geom, pengajuan.cctv)
-    pengajuan.status = Status.MENUNGGU_SGI
-    pengajuan.checklist_sgi, pengajuan.checklist_safety = [], []
-    pengajuan.orthophoto = orthophoto or pengajuan.orthophoto
-    if pengajuan.geom:
-        pengajuan.digitasi_oleh, pengajuan.digitasi_pada = user, timezone.now()
-    pengajuan.save()
-    if summary:
-        _log(pengajuan, Aksi.DIGITASI, user, f'v{pengajuan.versi} (revisi)')
-        _log(pengajuan, Aksi.VALIDASI, None, summary)
-    return pengajuan
-
-
-GCP_MIN, GCP_MAX = 4, 12
-IMAGE_MAX_PX = 10_000
-
-
-def clean_kalibrasi(data):
-    """Validate a camera calibration posted by the GeoPoint panel; returns the cleaned dict.
-
-    Pixels must lie inside the screenshot and positions inside the operating area.
-    The homography itself is solved in the browser (static/js/homography.js).
-    """
-    try:
-        lebar, tinggi = int(data['lebar']), int(data['tinggi'])
-        points = [
-            {'px': float(g['px']), 'py': float(g['py']), 'lon': float(g['lon']), 'lat': float(g['lat'])}
-            for g in data['gcp']
-        ]
-    except (KeyError, TypeError, ValueError) as exc:
-        raise GeometryError('Data kalibrasi tidak lengkap.') from exc
-    if not (0 < lebar <= IMAGE_MAX_PX and 0 < tinggi <= IMAGE_MAX_PX):
-        raise GeometryError('Ukuran gambar tidak valid.')
-    if not GCP_MIN <= len(points) <= GCP_MAX:
-        raise GeometryError(f'Butuh {GCP_MIN}–{GCP_MAX} titik kontrol (GCP).')
-    for i, g in enumerate(points, start=1):
-        if not (0 <= g['px'] <= lebar and 0 <= g['py'] <= tinggi):
-            raise GeometryError(f'GCP {i} di luar gambar.')
-        if not WILAYAH.contains(Point(g['lon'], g['lat'], srid=4326)):
-            raise GeometryError(f'GCP {i} di luar wilayah operasi Berau.')
-    return {'gcp': points, 'lebar': lebar, 'tinggi': tinggi}
 
 
 def jangkauan_m(cctv):
@@ -173,181 +233,146 @@ def jangkauan_m(cctv):
     return spec.radius_m * JARAK_FAKTOR if spec and spec.radius_m else JARAK_DEFAULT_M
 
 
-def active_kalibrasi(cctv):
-    return KalibrasiKamera.objects.filter(cctv=cctv, aktif=True).first()
+# --- The flow ----------------------------------------------------------------------------------
+
+def _log(pengajuan, aksi, user=None, catatan=''):
+    RiwayatPengajuan.objects.create(pengajuan=pengajuan, aksi=aksi, user=user, catatan=catatan)
 
 
-def _camera_xy(cctv, gcps):
-    if cctv.posisi:
-        return homography.to_utm(*cctv.posisi.coords)
-    xs, ys = zip(*(homography.to_utm(g['lon'], g['lat']) for g in gcps))
-    return sum(xs) / len(xs), sum(ys) / len(ys)
+def _expect(pengajuan, *statuses):
+    if pengajuan.status not in statuses:
+        raise ReviewError(f'Pengajuan ini sedang {pengajuan.get_status_display()}, bukan di tahap ini.')
 
 
-@transaction.atomic
-def save_kalibrasi(pengajuan, user, data):
-    """Safety's GCPs for this camera, solved with OpenCV and kept as the camera's calibration.
-
-    The previous calibration of the camera is switched off. Then the request is analysed.
-    Raises GeometryError with a message for the user.
-    """
-    if not pengajuan.tangkapan_layar:
-        raise GeometryError('Upload tangkapan layar CCTV dulu.')
-    cleaned = clean_kalibrasi(data)
-    try:
-        cal = homography.calibrate(cleaned['gcp'], cleaned['lebar'], cleaned['tinggi'])
-    except homography.CalibrationError as exc:
-        raise GeometryError(str(exc)) from exc
-    KalibrasiKamera.objects.filter(cctv=pengajuan.cctv, aktif=True).update(aktif=False)
-    with pengajuan.tangkapan_layar.open('rb') as screenshot:
-        content = ContentFile(screenshot.read())
-    kalibrasi = KalibrasiKamera(cctv=pengajuan.cctv, gcp=cleaned['gcp'], lebar=cleaned['lebar'],
-                                tinggi=cleaned['tinggi'], hasil=cal.as_json(), dibuat_oleh=user)
-    kalibrasi.gambar.save(f'{pengajuan.cctv.no_cctv}.jpg', content, save=False)
-    kalibrasi.save()
-    outliers = [i + 1 for i, ok in enumerate(cal.inliers) if not ok]
-    _log(pengajuan, Aksi.KALIBRASI, user,
-         f'{len(cleaned["gcp"])} GCP, RMSE {cal.rmse_m:.2f} m'
-         + (f', GCP {", ".join(map(str, outliers))} diabaikan (outlier)' if outliers else ''))
-    try:
-        analyse_pengajuan(pengajuan, kalibrasi)
-    except homography.CalibrationError as exc:  # e.g. an unreadable screenshot: keep nothing
-        raise GeometryError(str(exc)) from exc
-    return kalibrasi
-
-
-def _geom_key(pengajuan, kalibrasi):
-    return f'{kalibrasi.pk}:{hashlib.md5(bytes(pengajuan.geom.wkb)).hexdigest()}' if pengajuan.geom else ''
-
-
-def analysis_is_stale(pengajuan, kalibrasi):
-    return bool(kalibrasi and pengajuan.geom and pengajuan.tangkapan_layar
-                and pengajuan.analisis.get('kunci') != _geom_key(pengajuan, kalibrasi))
-
-
-def analyse_pengajuan(pengajuan, kalibrasi):
-    """Run the homography check and draw the evidence image; stored on the request."""
-    if not (kalibrasi and pengajuan.geom and pengajuan.tangkapan_layar):
-        return None
-    cal = homography.from_json(kalibrasi.hasil)
-    result, visible, view = homography.analyse(cal, pengajuan.geom, _camera_xy(pengajuan.cctv, kalibrasi.gcp),
-                                               jangkauan_m(pengajuan.cctv))
-    summary = (f"{pengajuan.cctv.no_cctv}  terlihat {result['persen_terlihat']:.0f}%  "
-               f"terjauh {result['titik_terjauh_m']:.0f} m / {result['jangkauan_m']:.0f} m  "
-               f"RMSE {result['rmse_m']:.1f} m")
-    with pengajuan.tangkapan_layar.open('rb') as screenshot:
-        jpeg = homography.render_evidence(screenshot.read(), cal, visible, view, kalibrasi.gcp, summary)
-    pengajuan.analisis = {
-        **result,
-        'area_pandang': homography.geometry_to_geojson(view),
-        'kalibrasi_id': kalibrasi.pk,
-        'kunci': _geom_key(pengajuan, kalibrasi),
-        'dihitung': timezone.now().isoformat(),
-    }
-    if pengajuan.bukti:
-        pengajuan.bukti.delete(save=False)
-    pengajuan.bukti.save(f'bukti-{pengajuan.cctv.no_cctv}.jpg', ContentFile(jpeg), save=False)
-    pengajuan.save(update_fields=['analisis', 'bukti', 'diubah'])
-    return pengajuan.analisis
-
-
-def open_request(cctv):
-    return PengajuanCoverage.objects.filter(cctv=cctv).exclude(status=Status.SELESAI).first()
-
-
-def create_digitasi_task(cctv, user, jenis, catatan=''):
-    """A digitisation task for SGI after IT added (jenis baru) or moved (dipindah) a CCTV.
-
-    Returns the task, or the already open request for this CCTV (one open request per CCTV),
-    with the new change noted in its history.
-    """
-    if jenis == PengajuanCoverage.Jenis.DIPINDAH:
-        # A moved camera sees a different patch of ground: its calibration no longer applies.
-        KalibrasiKamera.objects.filter(cctv=cctv, aktif=True).update(aktif=False)
-    existing = open_request(cctv)
-    if existing:
-        _log(existing, Aksi.DIAJUKAN, user, f'perubahan lagi: {catatan}' if catatan else 'perubahan lagi')
-        return existing
-    from orthophoto.models import Orthophoto
-    _, versi = active_coverage(cctv)
-    task = PengajuanCoverage.objects.create(
-        cctv=cctv, jenis=jenis, status=Status.MENUNGGU_DIGITASI, versi=versi + 1, diajukan_oleh=user,
-        orthophoto=Orthophoto.objects.filter(aktif=True).first(),
-    )
-    _log(task, Aksi.DIAJUKAN, user, catatan or task.get_jenis_display().lower())
-    return task
+def save_draft(pengajuan, user, data):
+    """Keep IT's form as typed (no password) without touching the CCTV."""
+    _expect(pengajuan, Status.DRAFT_IT, Status.RETURN_IT)
+    pengajuan.data_draft = data
+    if not pengajuan.diajukan_oleh_id:
+        pengajuan.diajukan_oleh = user
+    pengajuan.save()
+    _log(pengajuan, Aksi.DRAFT, user)
+    return pengajuan
 
 
 @transaction.atomic
-def save_digitasi(pengajuan, user, geom, *, kirim, catatan='', orthophoto=None):
-    """SGI's polygon for a task: kept as a draft, or (kirim) checked and sent to Safety."""
-    if pengajuan.status != Status.MENUNGGU_DIGITASI:
-        raise ReviewError('Tugas ini tidak sedang menunggu digitasi.')
+def continue_request(pengajuan, user, cctv, before):
+    """IT continues to digitisation; `cctv` is already saved, `before` is geometry_state() from
+    before saving (None for a new CCTV)."""
+    _expect(pengajuan, Status.DRAFT_IT, Status.RETURN_IT)
+    first = pengajuan.status == Status.DRAFT_IT
+    pengajuan.cctv = cctv
+    pengajuan.data_draft = {}
+    pengajuan.minggu = this_monday()
+    pengajuan.checklist_sgi, pengajuan.checklist_safety = [], []
+    if not pengajuan.diajukan_oleh_id:
+        pengajuan.diajukan_oleh = user
+    if first:
+        approved, versi = approved_coverage(cctv)
+        pengajuan.posisi_sebelum = before['posisi'] if before else None
+        pengajuan.geom_sebelum = approved
+        pengajuan.versi = versi + 1
+    changes = geometry_changes(before, geometry_state(cctv)) if before is not None else []
+    if first or changes:  # a resubmission without new changes keeps the first list
+        pengajuan.perubahan = changes
+    if first:
+        if before is not None and not pengajuan.perubahan:
+            pengajuan.jenis = PengajuanCoverage.Jenis.UBAH
+            pengajuan.status = Status.APPROVED
+            pengajuan.selesai = timezone.now()
+            pengajuan.save()
+            _log(pengajuan, Aksi.OTOMATIS)
+            return pengajuan
+        pengajuan.jenis = PengajuanCoverage.Jenis.BARU if before is None else PengajuanCoverage.Jenis.DIPINDAH
+    pengajuan.status = Status.MENUNGGU_MITRA
+    pengajuan.save()
+    _log(pengajuan, Aksi.DIAJUKAN, user, '' if first else 'diajukan ulang setelah dikembalikan')
+    return pengajuan
+
+
+@transaction.atomic
+def save_digitasi(pengajuan, user, geom, *, kirim, sumber='', file_shp='', catatan='', orthophoto=None):
+    """Survey Mitra's boundary: kept as a draft (already on the map), or checked and sent to Survey BC."""
+    _expect(pengajuan, Status.MENUNGGU_MITRA, Status.RETURN_MITRA)
     pengajuan.geom = geom
+    pengajuan.sumber_geom = sumber if geom else ''
+    pengajuan.file_shp = file_shp if sumber == PengajuanCoverage.SumberGeom.SHP else ''
     pengajuan.digitasi_oleh = user
     pengajuan.orthophoto = orthophoto or pengajuan.orthophoto
     if not kirim:
         pengajuan.save()
         return pengajuan
     summary = validate_geometry(geom, pengajuan.cctv)  # raises GeometryError
-    pengajuan.status = Status.MENUNGGU_SAFETY
+    pengajuan.status = Status.MENUNGGU_SGI
     pengajuan.digitasi_pada = timezone.now()
-    pengajuan.checklist_safety = []
+    pengajuan.checklist_sgi = []
     pengajuan.save()
     _log(pengajuan, Aksi.DIGITASI, user, f'v{pengajuan.versi}' + (f' · {catatan}' if catatan else ''))
     _log(pengajuan, Aksi.VALIDASI, None, summary)
     return pengajuan
 
 
-@dataclass
-class ReviewError(Exception):
-    message: str
+def _checked(items, checklist):
+    wanted = set(checklist)
+    return [key for key, _ in items if key in wanted]
 
 
-def _checklist_keys(tahap):
-    items = PengajuanCoverage.CHECKLIST_SGI if tahap == 'sgi' else PengajuanCoverage.CHECKLIST_SAFETY
-    return [key for key, _ in items]
+RETURNS = {
+    'it': (Status.RETURN_IT, 'ke IT'),
+    'mitra': (Status.RETURN_MITRA, 'ke Survey Mitra'),
+    'sgi': (Status.RETURN_SGI, 'ke Survey BC'),
+}
 
 
-def _this_monday():
-    today = timezone.localdate()
-    return today - datetime.timedelta(days=today.weekday())
+def _return(pengajuan, user, ke, catatan, tahap):
+    if not catatan:
+        raise ReviewError('Catatan wajib diisi jika dikembalikan.')
+    status, label = RETURNS[ke]
+    pengajuan.status = status
+    pengajuan.save()
+    _log(pengajuan, Aksi.DIKEMBALIKAN, user, f'{tahap} {label}: {catatan}')
+    return pengajuan
 
 
 @transaction.atomic
-def review(pengajuan, user, *, setujui, checklist, catatan=''):
-    """Approve or return the request at its current stage (SGI or Safety)."""
-    tahap = pengajuan.tahap
-    if not tahap:
-        raise ReviewError('Pengajuan ini tidak sedang menunggu review.')
-    keys = _checklist_keys(tahap)
-    checklist = [key for key in keys if key in set(checklist)]
+def review_sgi(pengajuan, user, *, aksi, checklist, catatan=''):
+    """aksi: 'safety' (forward; the whole checklist), 'mitra' or 'it' (return, with a note)."""
+    _expect(pengajuan, Status.MENUNGGU_SGI, Status.RETURN_SGI)
     catatan = catatan.strip()
-    setattr(pengajuan, f'checklist_{tahap}', checklist)
+    pengajuan.checklist_sgi = _checked(PengajuanCoverage.CHECKLIST_SGI, checklist)
+    if aksi in ('mitra', 'it'):
+        return _return(pengajuan, user, aksi, catatan, 'Survey BC')
+    if aksi != 'safety':
+        raise ReviewError('Pilih tindakan review.')
+    if len(pengajuan.checklist_sgi) != len(PengajuanCoverage.CHECKLIST_SGI):
+        raise ReviewError('Checklist belum lengkap: kembalikan ke Survey Mitra untuk diperbaiki.')
+    pengajuan.status = Status.MENUNGGU_SAFETY
+    pengajuan.checklist_safety = []
+    pengajuan.save()
+    _log(pengajuan, Aksi.DISETUJUI_SGI, user, catatan)
+    return pengajuan
 
-    if not setujui:
-        if not catatan:
-            raise ReviewError('Catatan review wajib diisi jika dikembalikan.')
-        # SGI sends a request back to IT; Safety sends the polygon back to SGI to redraw.
-        pengajuan.status = Status.DIKEMBALIKAN if tahap == 'sgi' else Status.MENUNGGU_DIGITASI
-        if tahap == 'safety':
-            pengajuan.digitasi_pada = None
-        pengajuan.save()
-        _log(pengajuan, Aksi.DIKEMBALIKAN, user, f'{tahap.upper()}: {catatan}')
-        return pengajuan
 
-    if checklist != keys:
-        raise ReviewError('Centang semua poin checklist sebelum menyetujui.')
-    if tahap == 'sgi':
-        pengajuan.status = Status.MENUNGGU_SAFETY
-        pengajuan.save()
-        _log(pengajuan, Aksi.DISETUJUI_SGI, user, catatan)
-        return pengajuan
-
-    pengajuan.status = Status.SELESAI
+@transaction.atomic
+def review_safety(pengajuan, user, *, aksi, checklist, catatan=''):
+    """aksi: 'approve' (Approved, or Approved with warning when the checklist is not whole),
+    'it' or 'sgi' (return). Feedback is always required."""
+    _expect(pengajuan, Status.MENUNGGU_SAFETY)
+    catatan = catatan.strip()
+    pengajuan.checklist_safety = _checked(PengajuanCoverage.CHECKLIST_SAFETY, checklist)
+    if aksi in ('it', 'sgi'):
+        return _return(pengajuan, user, aksi, catatan, 'Safety BC')
+    if aksi != 'approve':
+        raise ReviewError('Pilih tindakan review.')
+    if not catatan:
+        raise ReviewError('Feedback Safety wajib diisi.')
+    lengkap = len(pengajuan.checklist_safety) == len(PengajuanCoverage.CHECKLIST_SAFETY)
+    pengajuan.status = Status.APPROVED if lengkap else Status.APPROVED_WARNING
+    pengajuan.feedback_safety = catatan
+    pengajuan.selesai = timezone.now()
     pengajuan.save()
     CctvCoverage.objects.update_or_create(
-        cctv=pengajuan.cctv, minggu=_this_monday(), defaults={'geom': pengajuan.geom},
+        cctv=pengajuan.cctv, minggu=pengajuan.minggu, defaults={'geom': pengajuan.geom},
     )
-    _log(pengajuan, Aksi.DISETUJUI_SAFETY, user, catatan or f'coverage v{pengajuan.versi} aktif')
+    _log(pengajuan, Aksi.DISETUJUI_SAFETY if lengkap else Aksi.DISETUJUI_WARNING, user, catatan)
     return pengajuan

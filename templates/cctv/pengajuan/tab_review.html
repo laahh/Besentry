@@ -1,0 +1,88 @@
+{% load pengguna %}
+{# Tabs 3 and 4: Survey BC and Safety BC compare before and after, tick their checklist and decide. #}
+{% if tab not in tab_terbuka %}
+<div class="alert alert-light">Belum sampai tahap ini.</div>
+{% else %}
+<div class="row">
+  <div class="col-xl-9">
+    <div class="card verif-card">
+      <div class="card-body">
+        <h6 class="mb-3">{{ p.no_cctv }} · Perbandingan sebelum dan sesudah</h6>
+        <div class="row g-2">
+          <div class="col-md-6">
+            <div class="peta-banding" id="peta-sebelum"></div>
+            <div class="f-12 text-muted mt-1">Sebelum: titik dan coverage yang berlaku{% if not peta.sebelum.kamera and not peta.sebelum.geom %} · belum ada{% endif %}{% if luas_sebelum %} · {{ luas_sebelum|floatformat:2 }} ha{% endif %}</div>
+          </div>
+          <div class="col-md-6">
+            <div class="peta-banding" id="peta-sesudah"></div>
+            <div class="f-12 text-muted mt-1">Sesudah: titik dari IT + coverage Survey Mitra (v{{ p.versi }}){% if luas_sesudah %} · {{ luas_sesudah|floatformat:2 }} ha{% endif %}</div>
+          </div>
+        </div>
+        <div class="row g-2 mt-2">
+          <div class="col-md-5">
+            {% if p.tangkapan_layar %}
+            <a href="{% url 'cctv:pengajuan_tangkapan' p.pk %}" target="_blank" rel="noopener">
+              <img class="verif-tangkapan" src="{% url 'cctv:pengajuan_tangkapan' p.pk %}" alt="Tangkapan layar {{ p.no_cctv }}" loading="lazy">
+            </a>
+            {% else %}<div class="verif-tangkapan verif-tangkapan-kosong">Tangkapan layar CCTV</div>{% endif %}
+          </div>
+          <div class="col-md-7">
+            <table class="table verif-meta mb-0">
+              <tbody>
+                <tr><td>Digitasi oleh</td><td class="text-end">{{ p.digitasi_oleh|nama_user }}{% if p.digitasi_pada %} · {{ p.digitasi_pada|date:"d M H:i" }}{% endif %}</td></tr>
+                <tr><td>Sumber boundary</td><td class="text-end">{{ p.get_sumber_geom_display|default:"-" }}{% if p.file_shp %} ({{ p.file_shp }}){% endif %}</td></tr>
+                <tr><td>Orthophoto acuan</td><td class="text-end">{{ p.orthophoto.bulan|date:"M Y"|default:"-" }}</td></tr>
+                <tr><td>Luas</td><td class="text-end">{{ luas_sebelum|floatformat:2|default:"-" }} ha → {{ luas_sesudah|floatformat:2|default:"-" }} ha</td></tr>
+                <tr><td>Jangkauan maks.</td><td class="text-end">{{ jangkauan_m|floatformat:0 }} m</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% include "cctv/pengajuan/info_cctv.html" %}
+  </div>
+
+  <div class="col-xl-3">
+    {% if tab == 'sgi' %}
+    <form method="post" action="{% url 'cctv:pengajuan_sgi' p.pk %}" id="form-review">
+      {% csrf_token %}
+      {% include "cctv/pengajuan/checklist.html" with judul="Checklist Survey BC" items=checklist_sgi aktif=can.sgi %}
+      <div class="card verif-card">
+        <div class="card-body">
+          <h6>Catatan Survey BC</h6>
+          <textarea class="form-control" name="catatan" rows="5" placeholder="Wajib diisi jika dikembalikan..."{% if not can.sgi %} disabled{% endif %}></textarea>
+        </div>
+      </div>
+      {% if can.sgi %}
+      <button class="btn btn-dark w-100 mb-2" type="submit" name="aksi" value="safety">Lanjut ke Safety</button>
+      <div class="d-flex gap-2">
+        <button class="btn btn-outline-dark flex-fill" type="submit" name="aksi" value="mitra">Return to Survey Mitra</button>
+        <button class="btn btn-outline-dark flex-fill" type="submit" name="aksi" value="it">Return to IT</button>
+      </div>
+      <p class="f-12 text-muted mt-2 mb-0">Lanjut ke Safety hanya jika semua checklist dicentang; jika tidak, kembalikan ke Survey Mitra.</p>
+      {% endif %}
+    </form>
+    {% else %}
+    <form method="post" action="{% url 'cctv:pengajuan_safety' p.pk %}" id="form-review">
+      {% csrf_token %}
+      {% include "cctv/pengajuan/checklist.html" with judul="Checklist Safety BC" items=checklist_safety aktif=can.safety %}
+      <div class="card verif-card">
+        <div class="card-body">
+          <h6>Feedback Safety <span class="text-danger">*</span></h6>
+          <textarea class="form-control" name="catatan" rows="5" placeholder="Wajib diisi untuk setiap keputusan..."{% if not can.safety %} disabled{% endif %}>{% if not can.safety %}{{ p.feedback_safety }}{% endif %}</textarea>
+        </div>
+      </div>
+      {% if can.safety %}
+      <button class="btn btn-dark w-100 mb-2" type="submit" name="aksi" value="approve">Approve</button>
+      <div class="d-flex gap-2">
+        <button class="btn btn-outline-dark flex-fill" type="submit" name="aksi" value="sgi">Return to SGI</button>
+        <button class="btn btn-outline-dark flex-fill" type="submit" name="aksi" value="it">Return to IT</button>
+      </div>
+      <p class="f-12 text-muted mt-2 mb-0">Semua checklist dicentang: Approved. Ada yang tidak dicentang: Approved with warning. Return to IT untuk masalah reposisi, Return to SGI untuk masalah boundary.</p>
+      {% endif %}
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endif %}

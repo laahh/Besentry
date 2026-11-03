@@ -1,3 +1,4 @@
+import datetime
 import io
 import json
 from unittest import mock
@@ -10,7 +11,7 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from cctv.models import Cctv
+from cctv.models import CakupanCctv, Cctv, PengajuanCoverage, RiwayatPengajuan
 from core import karyawan_sync
 from core.models import Karyawan, Perusahaan, Site
 from navigation import roles
@@ -43,99 +44,107 @@ class PicTests(TestCase):
 
 @override_settings(FONNTE_TOKEN='test-token', SITE_URL='https://besentry.example')
 class NotifyTests(TestCase):
+    """Every step of a change request tells whoever works on the next one."""
+
     databases = {'default', 'log'}
 
     @classmethod
     def setUpTestData(cls):
+        User = get_user_model()
         cls.lmo, cls.smo = Site.objects.create(kode='LMO'), Site.objects.create(kode='SMO')
         cls.perusahaan = Perusahaan.objects.create(nama='PT Berau Coal', kode='BC')
-        cls.admin = get_user_model().objects.create_user('admin', password='x', first_name='Ifa')
-        cls.admin.groups.add(Group.objects.get(name=roles.ADMIN_HAZARD_MOTION))
-        cls.pic_all = PicSgi.objects.create(nama='SGI Pusat', no_wa='6281111111111', email='sgi@example.com')
-        cls.pic_lmo = PicSgi.objects.create(nama='SGI LMO', no_wa='6282222222222', site=cls.lmo)
-        cls.pic_smo = PicSgi.objects.create(nama='SGI SMO', email='smo@example.com', site=cls.smo)
-        PicSgi.objects.create(nama='Nonaktif', no_wa='6283333333333', aktif=False)
+        cls.cctv = Cctv.objects.create(no_cctv='LMO-BC-0099', nama='Pit J', site=cls.lmo, perusahaan=cls.perusahaan,
+                                       posisi=Point(117.6, 2.2, srid=4326))
+        cls.it = User.objects.create_user('it', password='x', email='it@example.com', first_name='Ifa')
+        cls.it.groups.add(Group.objects.get(name=roles.IT_PAMA))
+
+        lmo_role = Group.objects.create(name='CCTV LMO - PT Berau Coal')
+        CakupanCctv.objects.create(group=lmo_role, site=cls.lmo, perusahaan=cls.perusahaan)
+        smo_role = Group.objects.create(name='CCTV SMO - PT Berau Coal')
+        CakupanCctv.objects.create(group=smo_role, site=cls.smo, perusahaan=cls.perusahaan)
+        cls.mitra_lmo = cls._user('mitra-lmo', roles.SURVEY_MITRA, lmo_role, no_hp='0812 1111 1111')
+        cls.mitra_smo = cls._user('mitra-smo', roles.SURVEY_MITRA, smo_role, no_hp='0812 2222 2222')
+        cls.survey_bc = cls._user('survey-bc', roles.SURVEY_BC, email='bc@example.com')
+        cls.safety = cls._user('safety', roles.SAFETY, no_hp='0812 3333 3333')
+        cls.pic_lmo = PicSgi.objects.create(nama='SGI LMO', no_wa='6284444444444', site=cls.lmo)
+        PicSgi.objects.create(nama='SGI SMO', no_wa='6285555555555', site=cls.smo)
+
+    @classmethod
+    def _user(cls, username, role, *groups, email='', no_hp=''):
+        user = get_user_model().objects.create_user(username, password='x', email=email)
+        user.groups.add(Group.objects.get(name=role), *groups)
+        if no_hp:
+            Karyawan.objects.create(sid=username, nama=username, no_hp=no_hp, user=user)
+        return user
 
     def setUp(self):
-        self.client.force_login(self.admin)
         patcher = mock.patch.object(channels.urllib.request, 'urlopen', return_value=fonnte_reply(FONNTE_OK))
         self.urlopen = patcher.start()
         self.addCleanup(patcher.stop)
 
-    def form_data(self, **extra):
-        data = {'no_cctv': 'LMO-BC-0099', 'nama': 'Pit J', 'site': self.lmo.pk, 'perusahaan': self.perusahaan.pk,
-                'status': 'live', 'kondisi': 'baik', 'longitude': '117.6', 'latitude': '2.2',
-                'lokasi_pemasangan': 'Bench 3'}
-        data.update(extra)
-        return data
+    def request(self, status, **extra):
+        return PengajuanCoverage.objects.create(cctv=self.cctv, jenis='dipindah', status=status,
+                                                minggu=datetime.date(2026, 11, 2), diajukan_oleh=self.it, **extra)
 
-    def test_new_cctv_notifies_pics_of_its_site_by_wa_and_email(self):
+    def notify(self, pengajuan):
         with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.post(reverse('cctv:create'), self.form_data(), follow=True)
-        # TestCase never commits, so sending runs when the block ends (after the page was built).
-        self.assertContains(response, 'Notifikasi ke 2 PIC SGI')
+            return services.notify_pengajuan(pengajuan, self.it)
 
-        sent = Notifikasi.objects.order_by('tujuan')
-        self.assertEqual([(n.kanal, n.tujuan) for n in sent],
-                         [('wa', '6281111111111'), ('wa', '6282222222222'), ('email', 'sgi@example.com')])
-        self.assertTrue(all(n.status == 'terkirim' and n.jenis == 'cctv_baru' for n in sent))
-        self.assertEqual(self.urlopen.call_count, 2)
-        request = self.urlopen.call_args[0][0]
-        self.assertEqual(request.headers['Authorization'], 'test-token')
-        self.assertIn(b'LMO-BC-0099', request.data)
+    def test_waiting_survey_mitra_tells_mitra_in_scope_only(self):
+        pengajuan = self.request('menunggu_mitra',
+                                 perubahan=[['Koordinat', '2.200000, 117.600000', '2.200000, 117.601200']])
+        self.notify(pengajuan)
+        sent = Notifikasi.objects.get()
+        self.assertEqual((sent.kanal, sent.tujuan, sent.status, sent.jenis),
+                         ('wa', '6281211111111', 'terkirim', 'pengajuan'))
+        self.assertIn('*Waiting Survey Mitra*', sent.pesan)
+        self.assertIn('Koordinat: 2.200000, 117.600000 → 2.200000, 117.601200', sent.pesan)
+        self.assertIn(f'https://besentry.example/cctv/pengajuan/{pengajuan.pk}/', sent.pesan)
+        self.assertEqual(self.urlopen.call_args[0][0].headers['Authorization'], 'test-token')
 
+    def test_survey_bc_gets_users_and_the_site_pic(self):
+        self.notify(self.request('menunggu_sgi'))
+        self.assertEqual(set(Notifikasi.objects.values_list('kanal', 'tujuan')),
+                         {('email', 'bc@example.com'), ('wa', '6284444444444')})
         self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].subject, '[BeSentry] CCTV baru: LMO-BC-0099')
-        body = mail.outbox[0].body
-        self.assertIn('https://besentry.example/spasial/digitasi/?id=', body)  # the SGI task
-        self.assertIn('maps.google.com/?q=2.200000,117.600000', body)
-        self.assertNotIn('*', body)  # WhatsApp bold markers are stripped for email
+        self.assertEqual(mail.outbox[0].subject, '[BeSentry] Waiting Survey BC: LMO-BC-0099')
+        self.assertNotIn('*', mail.outbox[0].body)  # WhatsApp bold markers are stripped for email
 
-    def test_only_a_location_change_notifies(self):
-        cctv = Cctv.objects.create(no_cctv='LMO-BC-0099', nama='Pit J', site=self.lmo, perusahaan=self.perusahaan,
-                                   posisi=Point(117.6, 2.2, srid=4326), lokasi_pemasangan='Bench 3')
-        url = reverse('cctv:update', args=[cctv.pk])
-        with self.captureOnCommitCallbacks(execute=True):
-            self.client.post(url, self.form_data(nama='Pit J baru', kondisi='breakdown'))
-            self.client.post(url, self.form_data(longitude='117.600005'))  # ~0.5 m: GPS jitter
-        self.assertFalse(Notifikasi.objects.exists())
+    def test_safety_and_return_to_it(self):
+        self.notify(self.request('menunggu_safety'))
+        self.assertEqual(list(Notifikasi.objects.values_list('tujuan', flat=True)), ['6281233333333'])
+        Notifikasi.objects.all().delete()
 
-        with self.captureOnCommitCallbacks(execute=True):
-            self.client.post(url, self.form_data(longitude='117.6012', lokasi_pemasangan='Bench 5'))
-        notifikasi = Notifikasi.objects.filter(kanal='wa').first()
-        self.assertEqual(notifikasi.jenis, 'reposisi')
-        self.assertIn('Lokasi pemasangan: Bench 3 → Bench 5', notifikasi.pesan)
-        # The 0.5 m edit above was saved (just not notified), so it is the "before" here.
-        self.assertIn('Koordinat: 2.200000, 117.600005 → 2.200000, 117.601200', notifikasi.pesan)
+        PengajuanCoverage.objects.all().delete()
+        pengajuan = self.request('return_it')
+        RiwayatPengajuan.objects.create(pengajuan=pengajuan, aksi='dikembalikan', catatan='Safety BC ke IT: geser')
+        self.notify(pengajuan)
+        sent = Notifikasi.objects.get()
+        self.assertEqual(sent.tujuan, 'it@example.com')
+        self.assertIn('Catatan: Safety BC ke IT: geser', sent.pesan)
 
-    def test_moving_to_another_site_tells_that_sites_pic(self):
-        cctv = Cctv.objects.create(no_cctv='LMO-BC-0099', nama='Pit J', site=self.lmo, perusahaan=self.perusahaan,
-                                   posisi=Point(117.6, 2.2, srid=4326), lokasi_pemasangan='Bench 3')
-        with self.captureOnCommitCallbacks(execute=True):
-            self.client.post(reverse('cctv:update', args=[cctv.pk]), self.form_data(site=self.smo.pk))
-        self.assertEqual(set(Notifikasi.objects.values_list('pic__nama', flat=True)), {'SGI Pusat', 'SGI SMO'})
-        self.assertIn('Site: LMO → SMO', Notifikasi.objects.first().pesan)
+    def test_approved_tells_nobody(self):
+        self.assertEqual(self.notify(self.request('approved')), [])
 
     def test_failed_delivery_is_logged_and_can_be_resent(self):
         self.urlopen.return_value = fonnte_reply({'status': False, 'reason': 'invalid token'})
-        with self.captureOnCommitCallbacks(execute=True):
-            self.client.post(reverse('cctv:create'), self.form_data())
-        failed = Notifikasi.objects.filter(kanal='wa').first()
+        self.notify(self.request('menunggu_safety'))
+        failed = Notifikasi.objects.get()
         self.assertEqual(failed.status, 'gagal')
         self.assertIn('invalid token', failed.error)
 
         self.urlopen.return_value = fonnte_reply(FONNTE_OK)
+        admin = get_user_model().objects.create_user('admin', password='x')
+        admin.groups.add(Group.objects.get(name=roles.ADMIN_HAZARD_MOTION))
+        self.client.force_login(admin)
         self.client.post(reverse('notifikasi:resend', args=[failed.pk]))
         failed.refresh_from_db()
         self.assertEqual((failed.status, failed.percobaan), ('terkirim', 2))
 
-    def test_unreachable_fonnte_does_not_break_saving(self):
+    def test_unreachable_fonnte_does_not_break_the_flow(self):
         self.urlopen.side_effect = channels.urllib.error.URLError('no route')
-        with self.captureOnCommitCallbacks(execute=True):
-            self.client.post(reverse('cctv:create'), self.form_data())
-        self.assertTrue(Cctv.objects.filter(no_cctv='LMO-BC-0099').exists())
-        self.assertEqual(list(Notifikasi.objects.filter(kanal='wa').values_list('status', flat=True)),
-                         ['gagal', 'gagal'])
+        self.notify(self.request('menunggu_sgi'))
+        self.assertEqual(Notifikasi.objects.get(kanal='wa').status, 'gagal')
         self.assertEqual(Notifikasi.objects.get(kanal='email').status, 'terkirim')
 
 

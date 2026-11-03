@@ -114,11 +114,13 @@ Perusahaan SID dicocokkan ke `Perusahaan` yang sudah ada (dari data CCTV) lewat 
 
 **Hak akses per site + perusahaan** (`cctv/access.py`):
 
-| Siapa | Melihat | Tambah/ubah | Hapus | IP & password |
+| Siapa | Melihat | Ajukan perubahan | Hapus | IP & password |
 |---|---|---|---|---|
 | Superuser, `admin-hazard-motion` | Semua | Semua | Ya | Superuser saja |
 | Role dengan Coverage CCTV, mis. *CCTV BMO 2 - PT Pamapersada Nusantara* | Hanya Coverage CCTV-nya | Jika Coverage CCTV *Boleh tambah/ubah* | Tidak | Jika juga punya role IT |
-| `hazard-motion-it-pama`, `hazard-motion-it-mtl` | Semua (Coverage CCTV bawaan migrasi, bisa dipersempit) | Ya | Tidak | Ya, dalam Coverage CCTV-nya |
+| `hazard-motion-it-pama`, `-it-mtl`, `-it-bc` | Semua (Coverage CCTV bawaan migrasi, bisa dipersempit) | Ya | Ya, dalam Coverage CCTV-nya | Ya, dalam Coverage CCTV-nya |
+| `survey-mitra` (+ role Coverage CCTV) | Hanya Coverage CCTV-nya | Tidak (digitasi boundary) | Tidak | Tidak |
+| `survey-bc`, `safety-approval` | Semua | Tidak (review) | Tidak | Tidak |
 | User tanpa Coverage CCTV | Menu tidak tampil, halaman 403 | | | |
 
 Diatur di menu **Pengaturan** (khusus superuser dan `admin-hazard-motion`):
@@ -142,38 +144,36 @@ python manage.py buat_role_cctv
 | `cctv.Cctv` | Satu baris per kamera. Posisi disimpan sebagai `PointField` |
 | `cctv.CctvSpec` | 1:1, spesifikasi perangkat dan pemasangan (brand, model, radius, tinggi, tilt, azimuth) |
 | `cctv.CctvAkses` | 1:1, NVR/IP/link/username/password. Hanya role IT; password terenkripsi |
-| `cctv.CctvCoverage` | Polygon coverage per CCTV per minggu |
+| `cctv.PengajuanCoverage` | Satu pengajuan perubahan untuk satu CCTV (status, week, boundary, checklist) |
+| `cctv.CctvCoverage` | Boundary yang sudah Approved, diberi label week pengajuannya |
+| `cctv.SnapshotMingguan` | Kondisi semua CCTV, boundary, dan status pengajuan saat week ditutup (terkunci) |
 
 **Riwayat.** Setiap perubahan `Cctv`, `CctvSpec`, dan `CctvAkses` dicatat oleh django-simple-history di database `log` (app `cctv_log`, diarahkan oleh `config/db_router.py`), lengkap dengan user dan waktunya. Password tidak ikut dicatat. User disimpan sebagai id biasa (bukan FK) karena tabelnya ada di database lain.
 
 **Password** dienkripsi dengan `FIELD_ENCRYPTION_KEY` di `.env`. **Backup kunci ini**: tanpa kunci, password yang tersimpan tidak bisa dibaca lagi. Password tidak pernah ikut di HTML; tombol *Tampilkan* mengambilnya satu per satu.
 
-**Verifikasi coverage** (`/cctv/coverage/`, menu *Verifikasi Coverage*). Perubahan polygon coverage CCTV (Baru / Dipindah / Dicabut) melewati dua tahap review sebelum aktif (`cctv/coverage.py`):
+**Pengajuan perubahan CCTV** (`cctv/coverage.py`, halaman `/cctv/pengajuan/<id>/`). Data CCTV tidak diubah langsung: tombol *Ajukan Perubahan* di detail CCTV (atau *Tambah CCTV* di daftar) membuka satu pengajuan untuk satu CCTV, dengan lima tab:
 
-1. Pengguna dengan Coverage CCTV *boleh ubah* mengajukan: pilih CCTV, lampirkan tangkapan layar, gambar polygon di peta (klik untuk titik, geser untuk mengubah, atau salin versi aktif).
-2. Sistem memvalidasi geometri: polygon valid, di wilayah Berau, maks. 1.000 ha, titik terjauh ≤ radius kamera × 1,5 (2 km jika radius kosong).
-3. **SGI** lalu **Safety** (`admin-hazard-motion`/superuser) mencentang semua checklist untuk menyetujui, atau mengembalikan dengan catatan wajib. Pengajuan yang dikembalikan direvisi lalu dikirim ulang.
-4. Setelah Safety menyetujui, polygon menjadi `CctvCoverage` minggu ini (versi aktif). Untuk *Dicabut*, coverage minggu ini disimpan kosong.
+| Status | Dikerjakan | Aksi |
+|---|---|---|
+| Draft IT | IT Mitra / IT BC | Isi form + tangkapan layar baru, lalu *Lanjutkan Digitasi* |
+| Waiting Survey Mitra | `survey-mitra` | Gambar boundary di atas orthophoto aktif atau upload SHP (.zip), lalu *Ajukan ke Survey BC* |
+| Waiting Survey BC | `survey-bc` | Checklist 3 poin lengkap: ke Safety. Atau Return to Survey Mitra / Return to IT |
+| Waiting Safety BC | `safety-approval` | Feedback wajib. Checklist 4 poin lengkap: Approved; kurang: Approved with warning. Atau Return to SGI / Return to IT |
+| Return to IT / Survey Mitra / SGI | pemilik tahap itu | Perbaiki lalu lanjutkan; Return to SGI bisa diteruskan Survey BC ke Safety, Survey Mitra, atau IT |
 
-**GeoPoint kamera** (panel di bawah perbandingan): menghubungkan tangkapan layar CCTV dengan peta lewat homografi (`static/js/homography.js`, `static/js/geopoint.js`).
+- Satu CCTV hanya punya satu pengajuan terbuka, dan tidak ada pembatalan: setiap pengajuan berjalan sampai Approved. CCTV dengan pengajuan terbuka tidak bisa dihapus.
+- Perubahan dari IT masuk ke data CCTV saat *Lanjutkan Digitasi*. Draft disimpan tanpa password.
+- Jika koordinat, jenis, radius, azimuth, tilt, dan tinggi pasang tidak berubah, pengajuan langsung **Approved** oleh sistem.
+- **Week**: label pengajuan = week (WITA, mulai Senin) saat IT melanjutkan ke digitasi; Return to IT memberi week baru. Saat Approved, boundary disimpan sebagai `CctvCoverage` week itu.
+- Boundary hasil Survey Mitra langsung tampil di peta (detail CCTV, snapshot) walaupun belum Approved.
+- Validasi boundary: polygon valid, di dalam extent orthophoto aktif, luas < 200 ha, titik terjauh ≤ radius × 1,5 (2 km jika radius kosong). SHP: tepat 1 feature polygon, wajib `.prj`, CRS UTM 50N.
+- Daftar CCTV menampilkan status pengajuan terakhir (mis. *Approved W45 2026*) di kolom paling kanan; klik untuk membuka tab yang sesuai. Bisa difilter per status.
+- Tangkapan layar disimpan di `MEDIA_ROOT/coverage/` dan hanya bisa dibuka lewat aplikasi (dicek hak aksesnya).
 
-- *Kalibrasi GCP*: pilih GCP, klik titiknya di gambar CCTV, lalu titik yang sama di peta orthophoto. Minimal 4 GCP; dengan 5+ GCP tampil RMSE (meter) dan error per GCP. Disimpan per pengajuan (`PengajuanCoverage.kalibrasi`), oleh pengaju atau reviewer selama belum selesai.
-- *Titik*: klik permukaan tanah di gambar → pin + lat/lon di peta; klik peta → pin di gambar. Bisa disalin atau diekspor GeoJSON.
-- *Overlay*: polygon usulan (dan versi aktif) diproyeksikan ke gambar CCTV, sehingga SGI melihat apakah area yang diusulkan benar-benar terlihat kamera.
+**Snapshot mingguan** (service `snapshot`, `python manage.py snapshot_mingguan --tunggu`): setiap Senin 00.00 WITA menyimpan kondisi semua CCTV, boundary, dan status pengajuan ke `SnapshotMingguan` untuk week yang baru ditutup. Week yang sudah ditutup tidak diubah lagi. Jika service mati saat cut-off, week itu ditutup saat service hidup lagi, dengan data saat itu.
 
-Asumsinya permukaan tanah datar; di lereng atau beda elevasi besar akurasi menurun, jadi gunakan RMSE sebagai acuan.
-
-**Verifikasi dari foto CCTV (homography Python)**: `cctv/homography.py` (OpenCV + NumPy).
-
-- **Safety** mengkalibrasi kamera: pasangkan ≥ 4 GCP di tangkapan layar dan orthophoto, lalu *Simpan kalibrasi*. Server menghitung homography piksel → UTM 50N dengan RANSAC; GCP yang salah klik (> 3 m) dilaporkan sebagai outlier.
-- Kalibrasi disimpan **per kamera** (`KalibrasiKamera`, satu aktif per CCTV) dan dipakai ulang untuk pengajuan berikutnya; otomatis nonaktif saat CCTV dipindah. Kalibrasi ulang jika kamera diputar.
-- Analisis otomatis per pengajuan (`PengajuanCoverage.analisis`): **% coverage yang terlihat kamera** (bingkai foto diproyeksikan ke tanah, dipotong di cakrawala dan pada jangkauan = radius × 1,5), titik terjauh vs jangkauan, luas, RMSE. Dihitung ulang otomatis saat polygon berubah.
-- **Gambar bukti** (`PengajuanCoverage.bukti`): foto CCTV dengan coverage yang terlihat dan GCP digambar, disimpan sebagai lampiran verifikasi.
-- Tangkapan layar di-upload manual dari halaman verifikasi.
-
-Satu CCTV hanya boleh punya satu pengajuan terbuka. Tangkapan layar disimpan di `MEDIA_ROOT/coverage/` dan hanya bisa dibuka lewat aplikasi (dicek hak aksesnya), bukan lewat URL publik.
-
-**Notifikasi ke PIC SGI** (app `notifikasi`, menu *Pengaturan > PIC SGI*). Saat CCTV **ditambahkan** atau **lokasinya berubah** lewat form (site, lokasi, detail lokasi, lokasi pemasangan, atau koordinat bergeser ≥ 1 m), PIC SGI aktif untuk site itu (atau PIC "semua site") menerima WhatsApp lewat **Fonnte** dan email, berisi detail perubahan, link Google Maps, dan link ke CCTV. Import spreadsheet tidak memicu notifikasi.
+**Notifikasi** (app `notifikasi`). Setiap langkah pengajuan mengirim WhatsApp (**Fonnte**) dan email ke tahap berikutnya: Survey Mitra dalam Coverage CCTV-nya, Survey BC + PIC SGI site itu (menu *Pengaturan > PIC SGI*), Safety BC, atau IT pengaju saat Return to IT. Nomor WA diambil dari data karyawan SID user tersebut, email dari akun atau data karyawan.
 
 - Kredensial di `.env`: `FONNTE_TOKEN`, `MAIL_BACKUP_*` (SMTP), `SITE_URL` (dasar link di pesan).
 - Setiap pesan dicatat (`Notifikasi`: terkirim/gagal + alasannya). Dari halaman PIC SGI bisa *Tes kirim* dan *Kirim ulang*.

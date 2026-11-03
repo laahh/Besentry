@@ -53,17 +53,14 @@ MAIN_MENU = (
             MenuItem('CCTV PJA Dedicated', page='cctv-pja-dedicated'),
             MenuItem('Pengawas Control Room', page='cctv-control-room'),
         )),
-        # Order follows the work: CCTV data, then the spatial base (orthophoto), then verification.
-        MenuItem('Spasial', 'crosshair', groups=(roles.ADMIN_HAZARD_MOTION, roles.SGI), children=(
-            # SGI's queue: CCTV that IT added or moved, waiting for their coverage polygon.
-            MenuItem('Digitasi Coverage', url_name='cctv:digitasi_index', check='cctv.access.can_digitize'),
+        # Change requests (IT -> Survey Mitra -> Survey BC -> Safety) are opened from the CCTV
+        # Database: its status column links to each request.
+        MenuItem('Spasial', 'crosshair', groups=(roles.ADMIN_HAZARD_MOTION,), children=(
             MenuItem('WMS', page='spasial-wms', hidden=True),
             MenuItem('Area Kerja + Area CCTV', page='spasial-area-kerja', hidden=True),
             MenuItem('Boundary Monitoring', page='spasial-boundary-monitoring', hidden=True),
-            MenuItem('Orthophoto', url_name='orthophoto:publish', groups=(roles.ADMIN_HAZARD_MOTION,)),
+            MenuItem('Orthophoto', url_name='orthophoto:publish'),
         )),
-        MenuItem('Verifikasi Coverage', 'check-circle', url_name='cctv:coverage_index',
-                 check='cctv.access.can_open_coverage'),
     )),
     MenuSection('Pengaturan', (
         MenuItem('Role & Akses', 'user-check', url_name='pengaturan:role_list', groups=(roles.ADMIN_HAZARD_MOTION,)),

@@ -3,14 +3,18 @@
 ADMIN_HAZARD_MOTION = 'admin-hazard-motion'
 IT_PAMA = 'hazard-motion-it-pama'
 IT_MTL = 'hazard-motion-it-mtl'
+IT_BC = 'hazard-motion-it-bc'
 # Mitra (contractor) accounts only see the BeWell mitra pages.
 MITRA_ONLY = 'mitra-only'
-# CCTV coverage requests: SGI digitises, Safety approves. Not in the Laravel app yet.
-SGI = 'sgi'
+# CCTV change requests: IT submits, Survey Mitra digitises, Survey BC reviews, Safety approves.
+# Not in the Laravel app yet.
+SURVEY_MITRA = 'survey-mitra'
+SURVEY_BC = 'survey-bc'
 SAFETY = 'safety-approval'
 
-ALL_ROLES = (ADMIN_HAZARD_MOTION, IT_PAMA, IT_MTL, MITRA_ONLY, SGI, SAFETY)
-CCTV_ADMINS = (ADMIN_HAZARD_MOTION, IT_PAMA, IT_MTL)
+IT_ROLES = (IT_PAMA, IT_MTL, IT_BC)
+ALL_ROLES = (ADMIN_HAZARD_MOTION, *IT_ROLES, MITRA_ONLY, SURVEY_MITRA, SURVEY_BC, SAFETY)
+CCTV_ADMINS = (ADMIN_HAZARD_MOTION, *IT_ROLES)
 
 
 def user_group_names(user):

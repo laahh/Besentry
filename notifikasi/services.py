@@ -1,8 +1,10 @@
-"""Tell the SGI PICs when a CCTV is added or moved, so they can (re)draw its coverage.
+"""Tell whoever works on the next stage of a CCTV change request, by WhatsApp and email.
 
-    snapshot = location_snapshot(cctv)          # before saving an edit
-    ...save...
-    notify_cctv(cctv, user, before=snapshot)    # new CCTV: before=None
+    notify_pengajuan(pengajuan, user)   # after every step of the flow (cctv.coverage)
+
+Waiting Survey Mitra / Return to Survey Mitra: Survey Mitra users whose scope holds the CCTV.
+Waiting Survey BC / Return to SGI: Survey BC users and the PIC SGI of the CCTV's site.
+Waiting Safety BC: Safety BC users. Return to IT: the IT user who submitted.
 
 Messages are logged as Notifikasi rows first, then sent on the `notifikasi` queue once the
 transaction commits (synchronously unless NOTIFIKASI_ASYNC=True and a worker runs).
@@ -12,85 +14,83 @@ import logging
 
 import django_rq
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
 
+from navigation import roles
+
 from . import channels
-from .models import Notifikasi, PicSgi
+from .models import Notifikasi, PicSgi, normalise_wa
 
 logger = logging.getLogger(__name__)
 
 QUEUE = 'notifikasi'
-MOVE_THRESHOLD_M = 1  # GPS jitter below this is not a move
-LOCATION_FIELDS = ('site_id', 'lokasi_id', 'detail_lokasi_id', 'lokasi_pemasangan', 'posisi')
 
 
-def location_snapshot(cctv):
-    """The location fields as stored now (call before saving an edit)."""
-    row = type(cctv).objects.filter(pk=cctv.pk).select_related('site', 'lokasi', 'detail_lokasi').first()
-    if row is None:
-        return None
-    return {
-        'site': row.site.kode if row.site_id else '',
-        'lokasi': row.lokasi.nama if row.lokasi_id else '',
-        'detail_lokasi': row.detail_lokasi.nama if row.detail_lokasi_id else '',
-        'lokasi_pemasangan': row.lokasi_pemasangan,
-        'posisi': row.posisi,
-        **{field: getattr(row, field) for field in LOCATION_FIELDS if field.endswith('_id')},
-    }
-
-
-def _moved(old, new):
-    if old is None or new is None:
-        return old != new
-    return old.transform(32650, clone=True).distance(new.transform(32650, clone=True)) >= MOVE_THRESHOLD_M
-
-
-def _coords(point):
-    return f'{point.y:.6f}, {point.x:.6f}' if point else '-'
-
-
-def location_changes(before, cctv):
-    """[(label, old, new)] for the location fields that changed."""
-    after = location_snapshot(cctv)
-    changes = []
-    for label, key, id_key in (('Site', 'site', 'site_id'), ('Lokasi', 'lokasi', 'lokasi_id'),
-                               ('Detail lokasi', 'detail_lokasi', 'detail_lokasi_id')):
-        if before[id_key] != after[id_key]:
-            changes.append((label, before[key] or '-', after[key] or '-'))
-    if before['lokasi_pemasangan'] != after['lokasi_pemasangan']:
-        changes.append(('Lokasi pemasangan', before['lokasi_pemasangan'] or '-', after['lokasi_pemasangan'] or '-'))
-    if _moved(before['posisi'], after['posisi']):
-        changes.append(('Koordinat', _coords(before['posisi']), _coords(after['posisi'])))
-    return changes
-
-
-def recipients(site_id):
+def pic_sgi(site_id):
     return PicSgi.objects.filter(aktif=True).filter(Q(site__isnull=True) | Q(site_id=site_id))
 
 
-def _message(cctv, jenis, user, changes, path=None):
-    baru = jenis == Notifikasi.Jenis.CCTV_BARU
-    judul = f"[BeSentry] {'CCTV baru' if baru else 'Perubahan lokasi CCTV'}: {cctv.no_cctv}"
-    link = settings.SITE_URL.rstrip('/') + (path or reverse('cctv:detail', args=[cctv.pk]))
+def _users(role):
+    return get_user_model().objects.filter(is_active=True, groups__name=role).select_related('karyawan').distinct()
+
+
+def _contacts(user):
+    """(WhatsApp number, email) of a user, from their account and the synced employee record."""
+    karyawan = getattr(user, 'karyawan', None)
+    wa = normalise_wa(karyawan.no_hp) if karyawan and karyawan.no_hp else ''
+    email = user.email or (karyawan.email.lower() if karyawan and karyawan.email else '')
+    return wa, email
+
+
+def recipients(pengajuan):
+    """[(PicSgi or None, WhatsApp, email)] for the stage the request just reached."""
+    from cctv.access import get_scope
+    Status = type(pengajuan).Status
+    cctv = pengajuan.cctv
+    users, pics = [], []
+    if pengajuan.status in (Status.MENUNGGU_MITRA, Status.RETURN_MITRA):
+        users = [u for u in _users(roles.SURVEY_MITRA) if get_scope(u).can_digitize(cctv)]
+    elif pengajuan.status in (Status.MENUNGGU_SGI, Status.RETURN_SGI):
+        users, pics = list(_users(roles.SURVEY_BC)), list(pic_sgi(cctv.site_id))
+    elif pengajuan.status == Status.MENUNGGU_SAFETY:
+        users = list(_users(roles.SAFETY))
+    elif pengajuan.status == Status.RETURN_IT and pengajuan.diajukan_oleh_id:
+        users = [pengajuan.diajukan_oleh]
+    return [(None, *_contacts(user)) for user in users] + [(pic, pic.no_wa, pic.email) for pic in pics]
+
+
+TODO = {
+    'menunggu_mitra': 'Mohon digitasi boundary coverage CCTV ini (gambar di peta atau upload SHP):',
+    'return_mitra': 'Boundary dikembalikan ke Survey Mitra. Mohon perbaiki:',
+    'menunggu_sgi': 'Mohon review boundary coverage CCTV ini:',
+    'return_sgi': 'Safety mengembalikan ke Survey BC. Mohon review ulang:',
+    'menunggu_safety': 'Mohon review dan beri keputusan Safety:',
+    'return_it': 'Pengajuan dikembalikan ke IT. Mohon perbaiki data CCTV:',
+}
+
+
+def _message(pengajuan, user):
+    cctv = pengajuan.cctv
+    status = pengajuan.get_status_display()
+    judul = f'[BeSentry] {status}: {cctv.no_cctv}'
+    link = settings.SITE_URL.rstrip('/') + reverse('cctv:pengajuan', args=[pengajuan.pk])
     lines = [
-        f"*{'CCTV baru ditambahkan' if baru else 'Lokasi CCTV berubah'}*",
+        f'*{status}*',
         '',
         f'No. CCTV: {cctv.no_cctv}',
         f'Nama: {cctv.nama}',
         f'Site / perusahaan: {cctv.site.kode} / {cctv.perusahaan.nama}',
+        f'Pengajuan: {pengajuan.get_jenis_display()} · {pengajuan.minggu_label}',
     ]
-    if baru:
-        lines += [
-            f'Lokasi: {cctv.lokasi.nama if cctv.lokasi_id else "-"}'
-            f'{" > " + cctv.detail_lokasi.nama if cctv.detail_lokasi_id else ""}',
-            f'Lokasi pemasangan: {cctv.lokasi_pemasangan or "-"}',
-            f'Koordinat: {_coords(cctv.posisi)}',
-        ]
-    else:
-        lines += ['', 'Perubahan:'] + [f'- {label}: {old} → {new}' for label, old, new in changes]
+    if pengajuan.perubahan:
+        lines += ['', 'Perubahan:'] + [f'- {label}: {old} → {new}' for label, old, new in pengajuan.perubahan]
+    last = pengajuan.riwayat.filter(aksi='dikembalikan').order_by('-waktu').first()
+    if pengajuan.status.startswith('return') and last:
+        lines += ['', f'Catatan: {last.catatan}']
     if cctv.posisi:
         lines.append(f'Peta: https://maps.google.com/?q={cctv.posisi.y:.6f},{cctv.posisi.x:.6f}')
     who = (user.get_full_name() or user.get_username()) if user else 'Sistem'
@@ -98,7 +98,7 @@ def _message(cctv, jenis, user, changes, path=None):
         '',
         f'Oleh: {who}, {timezone.localtime():%d %b %Y %H:%M} WITA',
         '',
-        'Mohon cek dan digitasi coverage CCTV ini:',
+        TODO.get(pengajuan.status, 'Detail pengajuan:'),
         link,
     ]
     return judul, '\n'.join(lines)
@@ -111,27 +111,18 @@ def _queue_rows(rows):
     return rows
 
 
-def notify_cctv(cctv, user, before=None, changes=None, path=None):
-    """New CCTV (before=None) or an edit; only a changed location notifies. Returns the rows made.
-
-    `changes` saves recomputing location_changes(); `path` is where the link in the message goes
-    (the SGI digitisation task; the CCTV page by default).
-    """
-    if before is None:
-        jenis, changes = Notifikasi.Jenis.CCTV_BARU, []
-    else:
-        changes = location_changes(before, cctv) if changes is None else changes
-        if not changes:
-            return []
-        jenis = Notifikasi.Jenis.REPOSISI
-    judul, pesan = _message(cctv, jenis, user, changes, path)
-
-    rows = []
-    for pic in recipients(cctv.site_id):
-        for kanal, tujuan in ((Notifikasi.Kanal.WA, pic.no_wa), (Notifikasi.Kanal.EMAIL, pic.email)):
-            if tujuan:
-                rows.append(Notifikasi(pic=pic, kanal=kanal, tujuan=tujuan, jenis=jenis, cctv=cctv,
-                                       judul=judul, pesan=pesan, dipicu_oleh=user))
+def notify_pengajuan(pengajuan, user):
+    """Messages for the stage `pengajuan` just reached; returns the rows made (none when it is done)."""
+    if pengajuan.status not in TODO:
+        return []
+    judul, pesan = _message(pengajuan, user)
+    rows, seen = [], set()
+    for pic, wa, email in recipients(pengajuan):
+        for kanal, tujuan in ((Notifikasi.Kanal.WA, wa), (Notifikasi.Kanal.EMAIL, email)):
+            if tujuan and (kanal, tujuan) not in seen:  # one message per number/address
+                seen.add((kanal, tujuan))
+                rows.append(Notifikasi(pic=pic, kanal=kanal, tujuan=tujuan, jenis=Notifikasi.Jenis.PENGAJUAN,
+                                       cctv=pengajuan.cctv, judul=judul, pesan=pesan, dipicu_oleh=user))
     return _queue_rows(Notifikasi.objects.bulk_create(rows))
 
 

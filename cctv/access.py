@@ -23,8 +23,8 @@ from .models import CakupanCctv, Cctv
 ROLE_NAME_MAX = 150
 
 FULL_ACCESS_ROLES = (roles.ADMIN_HAZARD_MOTION,)
-# Connection details and passwords, on top of the site/perusahaan scope.
-AKSES_ROLES = (roles.IT_PAMA, roles.IT_MTL)
+# Connection details and passwords, on top of the site/perusahaan scope. IT also deletes CCTV.
+AKSES_ROLES = roles.IT_ROLES
 
 
 @dataclass(frozen=True)
@@ -50,44 +50,45 @@ class Scope:
     full: bool
     rules: tuple = ()
     can_see_akses: bool = False
-    # Coverage workflow: SGI digitises, Safety approves. Both work on every site's requests.
+    # Change requests: Survey Mitra digitises within their scope; Survey BC and Safety BC
+    # review every site's requests, so they see every CCTV.
+    is_mitra: bool = False
     is_sgi: bool = False
     is_safety: bool = False
 
     @property
-    def can_open(self):
-        return self.full or bool(self.rules)
+    def sees_all(self):
+        return self.full or self.is_sgi or self.is_safety
 
     @property
-    def can_digitize(self):
+    def can_open(self):
+        return self.sees_all or bool(self.rules)
+
+    def can_digitize(self, cctv):
+        return self.full or (self.is_mitra and self.allows(cctv.site_id, cctv.perusahaan_id))
+
+    @property
+    def can_review_sgi(self):
         return self.full or self.is_sgi
 
     @property
-    def sees_all_coverage(self):
-        return self.full or self.is_sgi or self.is_safety
-
-    def can_review(self, tahap):
-        """SGI review stage (requests IT drew themselves) or the Safety stage."""
-        if tahap == 'sgi':
-            return self.full or self.is_sgi
-        if tahap == 'safety':
-            return self.full or self.is_safety
-        return False
+    def can_review_safety(self):
+        return self.full or self.is_safety
 
     @property
     def can_create(self):
         return self.full or any(rule.bisa_ubah for rule in self.rules)
 
-    @property
-    def can_delete(self):
-        return self.full
+    def can_delete(self, cctv):
+        """Admins, and IT roles for the CCTV they may change."""
+        return self.full or (self.can_see_akses and self.can_edit(cctv))
 
     def _rules(self, edit):
         return [rule for rule in self.rules if rule.bisa_ubah or not edit]
 
     def filter(self, queryset, edit=False, prefix=''):
-        """`prefix` reaches the CCTV through a relation, e.g. 'cctv__' for coverage requests."""
-        if self.full:
+        """`prefix` reaches the CCTV through a relation, e.g. 'cctv__' for change requests."""
+        if self.full or (self.sees_all and not edit):
             return queryset
         rules = self._rules(edit)
         if not rules:
@@ -98,7 +99,9 @@ class Scope:
         return queryset.filter(condition)
 
     def allows(self, site_id, perusahaan_id, edit=False):
-        return self.full or any(rule.matches(site_id, perusahaan_id) for rule in self._rules(edit))
+        if self.full or (self.sees_all and not edit):
+            return True
+        return any(rule.matches(site_id, perusahaan_id) for rule in self._rules(edit))
 
     def can_edit(self, cctv):
         return self.allows(cctv.site_id, cctv.perusahaan_id, edit=True)
@@ -123,7 +126,8 @@ def get_scope(user):
         group_names = roles.user_group_names(user)
         flags = {
             'can_see_akses': roles.has_any_role(user, group_names, AKSES_ROLES),
-            'is_sgi': roles.SGI in group_names,
+            'is_mitra': roles.SURVEY_MITRA in group_names,
+            'is_sgi': roles.SURVEY_BC in group_names,
             'is_safety': roles.SAFETY in group_names,
         }
         if roles.has_any_role(user, group_names, FULL_ACCESS_ROLES):
@@ -141,17 +145,6 @@ def get_scope(user):
 def can_open(user):
     """Menu check: show CCTV Database only to users who can see some CCTV."""
     return get_scope(user).can_open
-
-
-def can_open_coverage(user):
-    """Menu check for Verifikasi Coverage: CCTV scope, or the SGI / Safety roles."""
-    scope = get_scope(user)
-    return scope.can_open or scope.sees_all_coverage
-
-
-def can_digitize(user):
-    """Menu check for Spasial > Digitasi Coverage."""
-    return get_scope(user).can_digitize
 
 
 def role_name(site, perusahaan):

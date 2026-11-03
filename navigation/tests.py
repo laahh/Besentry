@@ -97,8 +97,14 @@ class MenuVisibilityTests(TestCase):
 
     def test_admin_hazard_motion_sees_dashboard_and_spasial(self):
         titles = _all_titles(build_menu(self._user(roles.ADMIN_HAZARD_MOTION)))
-        for visible in ('Dashboard', 'Spasial', 'Orthophoto', 'Verifikasi Coverage'):
+        for visible in ('Dashboard', 'Spasial', 'Orthophoto', 'CCTV Database'):
             self.assertIn(visible, titles)
+
+    def test_survey_bc_and_safety_reach_requests_through_the_cctv_database(self):
+        for role in (roles.SURVEY_BC, roles.SAFETY):
+            titles = _all_titles(build_menu(self._user(role)))
+            self.assertIn('CCTV Database', titles)
+            self.assertNotIn('Spasial', titles)
 
     def test_hidden_items_are_not_shown_even_to_superusers(self):
         titles = _all_titles(build_menu(self.User.objects.create_superuser('root', password='x')))

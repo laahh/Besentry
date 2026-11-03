@@ -73,6 +73,22 @@ services:
       - redis
     restart: unless-stopped
 
+  snapshot:
+    build: .
+    container_name: besentry_snapshot
+    # Menutup minggu setiap Senin 00.00 WITA: snapshot semua CCTV, boundary, dan status pengajuan
+    command: python manage.py snapshot_mingguan --tunggu
+    env_file: .env
+    environment:
+      DATABASE_URL: postgis://besentry:besentry_dev@db:5432/besentry
+      LOG_DATABASE_URL: postgis://besentry:besentry_dev@db:5432/besentry_log
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - .:/app
+    depends_on:
+      - db
+    restart: unless-stopped
+
   titiler:
     image: ghcr.io/developmentseed/titiler:2.4.0
     container_name: besentry_titiler
