@@ -57,15 +57,16 @@ class MitraSite(models.Model):
 class PengajuanAreaKerja(models.Model):
     """One Mitra Site's work areas for one week (Monday to Sunday, WITA): four slots, one per kind.
 
-    Mitra: Draft -> Waiting Survey BC -> Approved, or Return to Mitra and again. PT Berau Coal:
-    Survey BC uploads and it is Approved at once; it may still be edited during its week (logged).
+    Draft -> Waiting Verifikasi BC -> Approved, or back to the uploader and again. The uploader is the
+    Mitra (Survey Mitra), or Survey BC for PT Berau Coal's own areas. Verifikasi BC is SGI, Mining and
+    Safety BC, each approving once; Approved when all three have. Nothing changes once Approved.
     Only one request per Mitra Site and week, so a week is Approved at most once.
     """
 
     class Status(models.TextChoices):
         DRAFT = 'draft', 'Draft'
-        MENUNGGU_SGI = 'menunggu_sgi', 'Waiting Survey BC'
-        RETURN_MITRA = 'return_mitra', 'Return to Mitra'
+        MENUNGGU_SGI = 'menunggu_sgi', 'Waiting Verifikasi BC'  # SGI, Mining and Safety BC together
+        RETURN_MITRA = 'return_mitra', 'Dikembalikan'           # to the uploader: Mitra, or Survey BC for PT BC
         APPROVED = 'approved', 'Approved'
 
     BADGE = {
@@ -105,8 +106,15 @@ class PengajuanAreaKerja(models.Model):
 
     @property
     def gabung(self):
-        """PT Berau Coal: Survey BC uploads and validates its own areas, no verification step."""
+        """PT Berau Coal: Survey BC uploads its own areas (instead of a Survey Mitra)."""
         return self.mitra_site.perusahaan.is_berau_coal
+
+    @property
+    def status_label(self):
+        """'Dikembalikan' says to whom."""
+        if self.status == self.Status.RETURN_MITRA:
+            return 'Return to Survey BC' if self.gabung else 'Return to Mitra'
+        return self.get_status_display()
 
     @property
     def terkunci_minggu(self):
@@ -156,10 +164,11 @@ class AreaKerja(models.Model):
 class RiwayatAreaKerja(models.Model):
     class Aksi(models.TextChoices):
         DRAFT = 'draft', 'Draft disimpan'
-        DIAJUKAN = 'diajukan', 'Diajukan ke Survey BC'
-        DISETUJUI = 'disetujui', 'Disetujui Survey BC'
-        DIKEMBALIKAN = 'dikembalikan', 'Dikembalikan ke Mitra'
-        DIUBAH = 'diubah', 'Area diubah setelah berlaku'
+        DIAJUKAN = 'diajukan', 'Diajukan ke Verifikasi BC'
+        VERIFIKASI = 'verifikasi', 'Disetujui departemen'
+        DISETUJUI = 'disetujui', 'Approved Verifikasi BC'
+        DIKEMBALIKAN = 'dikembalikan', 'Dikembalikan ke pengupload'
+        DIUBAH = 'diubah', 'Area diubah setelah berlaku'  # kept for older rows: Approved areas no longer change
 
     pengajuan = models.ForeignKey(PengajuanAreaKerja, on_delete=models.CASCADE, related_name='riwayat')
     aksi = models.CharField(max_length=20, choices=Aksi.choices)
@@ -173,6 +182,73 @@ class RiwayatAreaKerja(models.Model):
         ordering = ['waktu', 'pk']
         verbose_name = 'riwayat area kerja'
         verbose_name_plural = 'riwayat area kerja'
+
+
+class Departemen(models.TextChoices):
+    """Who verifies a work area, each with one 'Disetujui'."""
+
+    SGI = 'sgi', 'SGI'
+    MINING = 'mining', 'Mining'
+    SAFETY = 'safety', 'Safety BC'
+
+
+class VerifikasiAreaKerja(models.Model):
+    """One department's approval of a request. Cleared when the request is sent again."""
+
+    pengajuan = models.ForeignKey(PengajuanAreaKerja, on_delete=models.CASCADE, related_name='verifikasi')
+    departemen = models.CharField(max_length=10, choices=Departemen.choices)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='+')
+    waktu = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['waktu']
+        verbose_name = 'verifikasi area kerja'
+        verbose_name_plural = 'verifikasi area kerja'
+        constraints = [models.UniqueConstraint(fields=['pengajuan', 'departemen'], name='verifikasi_satu_per_departemen')]
+
+
+class AnotasiAreaKerja(models.Model):
+    """A reviewer's note on the map: a point, a line or an area. Kept across re-uploads of the same
+    request; the uploader ticks it once solved. Not edited: a new one is drawn instead."""
+
+    class Bentuk(models.TextChoices):
+        TITIK = 'titik', 'Titik'
+        GARIS = 'garis', 'Garis'
+        AREA = 'area', 'Area'
+
+    pengajuan = models.ForeignKey(PengajuanAreaKerja, on_delete=models.CASCADE, related_name='anotasi')
+    departemen = models.CharField(max_length=10, choices=Departemen.choices)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='+')
+    bentuk = models.CharField(max_length=10, choices=Bentuk.choices, default=Bentuk.TITIK)
+    # Where the number and the note sit: the point itself, the middle of a line, a point inside an area.
+    posisi = models.PointField(srid=4326)
+    geom = models.GeometryField(srid=4326, null=True, blank=True, help_text='Garis atau area; kosong untuk titik.')
+    panjang_m = models.FloatField(null=True, blank=True)
+    luas_ha = models.FloatField(null=True, blank=True)
+    teks = models.TextField(max_length=1000)
+    dibuat = models.DateTimeField(auto_now_add=True)
+    selesai_oleh = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+',
+    )
+    selesai_pada = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['dibuat', 'pk']
+        verbose_name = 'anotasi area kerja'
+        verbose_name_plural = 'anotasi area kerja'
+
+    @property
+    def selesai(self):
+        return self.selesai_pada is not None
+
+    @property
+    def ukuran(self):
+        """'120 m' for a line, '0,45 ha' for an area, '' for a point."""
+        if self.bentuk == self.Bentuk.GARIS and self.panjang_m is not None:
+            return f'{self.panjang_m:,.0f} m'.replace(',', '.')
+        if self.bentuk == self.Bentuk.AREA and self.luas_ha is not None:
+            return f'{self.luas_ha:.2f} ha'.replace('.', ',')
+        return ''
 
 
 # --- Coverage ----------------------------------------------------------------------------------

@@ -55,10 +55,11 @@ class Scope:
     is_mitra: bool = False
     is_sgi: bool = False
     is_safety: bool = False
+    is_mining: bool = False  # verifies work areas with SGI and Safety BC
 
     @property
     def sees_all(self):
-        return self.full or self.is_sgi or self.is_safety
+        return self.full or self.is_sgi or self.is_safety or self.is_mining
 
     @property
     def can_open(self):
@@ -129,6 +130,7 @@ def get_scope(user):
             'is_mitra': roles.SURVEY_MITRA in group_names,
             'is_sgi': roles.SURVEY_BC in group_names,
             'is_safety': roles.SAFETY in group_names,
+            'is_mining': roles.MINING in group_names,
         }
         if roles.has_any_role(user, group_names, FULL_ACCESS_ROLES):
             scope = Scope(full=True, **flags)
