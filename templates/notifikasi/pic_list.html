@@ -1,10 +1,10 @@
 {% extends "layout/base.html" %}
 
-{% block title %}PIC SGI{% endblock %}
-{% block page_title %}PIC SGI{% endblock %}
+{% block title %}Master PIC{% endblock %}
+{% block page_title %}Master PIC{% endblock %}
 {% block breadcrumb %}
 <li class="breadcrumb-item">Pengaturan</li>
-<li class="breadcrumb-item active">PIC SGI</li>
+<li class="breadcrumb-item active">Master PIC</li>
 {% endblock %}
 
 {% block content %}
@@ -14,24 +14,30 @@
   <div class="col-xl-8">
     <div class="card">
       <div class="card-header pb-0">
-        <h5>Daftar PIC</h5>
-        <p class="f-12 text-muted mb-0 mt-1">Menerima WhatsApp dan email saat CCTV baru ditambahkan atau lokasinya berubah, supaya coverage-nya didigitasi.</p>
+        <h5>PIC per tahap</h5>
+        <p class="f-12 text-muted mb-0 mt-1">PIC menerima WhatsApp dan email saat pengajuan masuk ke tahapnya, dan bisa mengerjakan tahap itu setelah login dengan SID-nya. Tahap tanpa PIC diberitahukan ke semua user berole tahap tersebut.</p>
+        <ul class="nav nav-tabs border-tab mt-3">
+          {% for value, label, jumlah in tabs %}
+          <li class="nav-item"><a class="nav-link{% if value == tab %} active{% endif %}" href="?tab={{ value }}">{{ label }} <span class="f-12 text-muted">({{ jumlah }})</span></a></li>
+          {% endfor %}
+        </ul>
       </div>
       <div class="card-body">
         {% if pics %}
         <div class="table-responsive">
           <table class="table table-hover align-middle cctv-table">
-            <thead><tr><th>Nama</th><th>WhatsApp</th><th>Email</th><th>Site</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Nama</th><th>WhatsApp</th><th>Email</th><th>Site</th><th>Perusahaan</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {% for pic in pics %}
               <tr>
                 <td>
                   <span class="f-w-600">{{ pic.nama }}</span>
-                  {% if pic.karyawan %}<div class="f-12 text-muted">{{ pic.karyawan.sid }} · {{ pic.karyawan.jabatan_struktural|default:"-" }}</div>{% endif %}
+                  {% if pic.karyawan %}<div class="f-12 text-muted">{{ pic.karyawan.sid }} · {{ pic.karyawan.jabatan_struktural|default:"-" }}{% if not pic.karyawan.user_id %} · belum pernah login{% endif %}</div>{% endif %}
                 </td>
                 <td>{{ pic.no_wa|default:"-" }}</td>
                 <td>{{ pic.email|default:"-" }}</td>
                 <td>{{ pic.site|default:"Semua site" }}</td>
+                <td>{{ pic.perusahaan|default:"Semua perusahaan" }}</td>
                 <td>{% if pic.aktif %}<span class="badge badge-success">Aktif</span>{% else %}<span class="badge badge-light text-dark">Nonaktif</span>{% endif %}</td>
                 <td class="text-end text-nowrap">
                   <form method="post" action="{% url 'notifikasi:pic_test' pic.pk %}" class="d-inline">
@@ -46,7 +52,7 @@
           </table>
         </div>
         {% else %}
-        <div class="empty-state"><i data-feather="users"></i><p class="mt-2 mb-0">Belum ada PIC. Tambahkan di samping.</p></div>
+        <p class="empty-state mb-0">Belum ada PIC {{ tab_label }}. Notifikasi tahap ini dikirim ke semua user berole tersebut.</p>
         {% endif %}
       </div>
     </div>
@@ -55,10 +61,10 @@
   <div class="col-xl-4">
     <form method="post" class="card" novalidate>
       {% csrf_token %}
-      <div class="card-header pb-0"><h5>Tambah PIC</h5></div>
+      <div class="card-header pb-0"><h5>Assign PIC</h5></div>
       <div class="card-body row">
         {% include "notifikasi/partials/pic_fields.html" %}
-        <div class="col-12"><button class="btn btn-primary" type="submit">Tambah</button></div>
+        <div class="col-12"><button class="btn btn-primary" type="submit">Assign</button></div>
       </div>
     </form>
   </div>

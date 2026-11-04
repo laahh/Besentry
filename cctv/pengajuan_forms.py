@@ -120,6 +120,16 @@ class CekGeometriForm(forms.Form):
         return upload
 
 
+class DigitasiMassalForm(CekGeometriForm):
+    """One shapefile with many boundaries: checked first, then sent to Survey BC."""
+    geom_json = None
+    file_shp = forms.FileField(
+        label='File SHP (.zip)',
+        widget=forms.ClearableFileInput(attrs={'accept': '.zip', 'class': 'form-control'}),
+    )
+    aksi = forms.ChoiceField(choices=(('cek', 'Cek file'), ('kirim', 'Kirim ke Survey BC')))
+
+
 class ReviewForm(forms.Form):
     aksi = forms.ChoiceField(choices=(
         ('safety', 'Lanjut ke Safety'), ('approve', 'Approve'),

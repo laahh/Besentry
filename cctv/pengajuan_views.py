@@ -180,10 +180,15 @@ def _render(request, scope, pengajuan, tab=None, forms=None):
         'draw': bool(pengajuan) and _can_draw(scope, pengajuan),
     }
     reached = keys.index(pengajuan.tahap) if pengajuan else 0
+    pics = {}
+    if pengajuan and pengajuan.cctv_id:
+        for pic in notifikasi.pics_for(pengajuan.cctv).only('tahap', 'nama'):
+            pics.setdefault(pic.tahap, []).append(pic.nama)
     context = {
         'p': pengajuan,
         'tab': tab,
-        'tabs': [(key, label, index < reached, index == reached) for index, (key, label) in enumerate(tabs)],
+        'tabs': [(key, label, index < reached, index == reached, pics.get(key, []))
+                 for index, (key, label) in enumerate(tabs)],
         'tab_terbuka': keys[:reached + 1],
         # The tab with the drawing map: Survey Mitra's, or Survey BC's combined one for PT Berau Coal.
         'tab_digitasi': tab == 'mitra' or (gabung and tab == 'sgi'),
@@ -215,12 +220,18 @@ def _render(request, scope, pengajuan, tab=None, forms=None):
 
 
 def _notify(request, pengajuan):
-    sent = notifikasi.notify_pengajuan(pengajuan, request.user)
-    if sent:
-        counts = notifikasi.status_counts(sent)
-        level = messages.warning if counts['gagal'] else messages.info
-        level(request, f"Notifikasi {pengajuan.get_status_display()}: {counts['terkirim']} terkirim, "
-                       f"{counts['gagal']} gagal, {counts['menunggu']} di antrean.")
+    _report_sent(request, notifikasi.notify_pengajuan(pengajuan, request.user), pengajuan.get_status_display())
+
+
+def _report_sent(request, sent, status):
+    if not sent:
+        messages.warning(request, f'Belum ada penerima notifikasi {status}: '
+                                  'tidak ada PIC atau user berole dengan nomor WA/email. Atur di Master PIC.')
+        return
+    counts = notifikasi.status_counts(sent)
+    level = messages.warning if counts['gagal'] else messages.info
+    level(request, f"Notifikasi {status}: {counts['terkirim']} terkirim, "
+                   f"{counts['gagal']} gagal, {counts['menunggu']} di antrean.")
 
 
 @login_required

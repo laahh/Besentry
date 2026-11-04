@@ -17,6 +17,7 @@ from django.db.models import Q
 
 from core.models import Perusahaan, Site
 from navigation import roles
+from notifikasi.models import Pic
 
 from .models import CakupanCctv, Cctv
 
@@ -125,21 +126,28 @@ def get_scope(user):
         scope = Scope(full=False)
     else:
         group_names = roles.user_group_names(user)
+        # Being assigned as PIC of a stage gives the access of that stage, like holding its role.
+        # Connection details and deleting stay with the IT roles.
+        assigned = list(Pic.objects.filter(aktif=True, karyawan__user=user)
+                        .values_list('tahap', 'site_id', 'perusahaan_id'))
+        tahap = {row[0] for row in assigned}
         flags = {
             'can_see_akses': roles.has_any_role(user, group_names, AKSES_ROLES),
-            'is_mitra': roles.SURVEY_MITRA in group_names,
-            'is_sgi': roles.SURVEY_BC in group_names,
-            'is_safety': roles.SAFETY in group_names,
+            'is_mitra': roles.SURVEY_MITRA in group_names or Pic.Tahap.MITRA in tahap,
+            'is_sgi': roles.SURVEY_BC in group_names or Pic.Tahap.SGI in tahap,
+            'is_safety': roles.SAFETY in group_names or Pic.Tahap.SAFETY in tahap,
             'is_mining': roles.MINING in group_names,
         }
         if roles.has_any_role(user, group_names, FULL_ACCESS_ROLES):
             scope = Scope(full=True, **flags)
         else:
-            rules = tuple(
+            rules = {
                 Rule(*row) for row in CakupanCctv.objects.filter(group__user=user)
                 .values_list('site_id', 'perusahaan_id', 'bisa_ubah').distinct()
-            )
-            scope = Scope(full=False, rules=rules, **flags)
+            }
+            rules |= {Rule(site, perusahaan, stage == Pic.Tahap.IT) for stage, site, perusahaan in assigned
+                      if stage in (Pic.Tahap.IT, Pic.Tahap.MITRA)}
+            scope = Scope(full=False, rules=tuple(rules), **flags)
     user._cctv_scope = scope
     return scope
 

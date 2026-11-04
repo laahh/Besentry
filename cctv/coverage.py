@@ -36,6 +36,8 @@ GEOMETRY_FIELDS = ('posisi', 'jenis')
 GEOMETRY_SPEC_FIELDS = ('radius_m', 'azimuth_deg', 'tilt_deg', 'tinggi_pasang_m')
 SHP_PARTS = ('.shp', '.shx', '.dbf', '.prj')
 SHP_MAX_MB = 50
+SHP_MAX_FEATURES = 500
+SHP_CCTV_COLUMN = 'no_cctv'  # the upload of many boundaries at once: which CCTV each feature is for
 # More vertices than this are simplified on load, so the polygon stays editable in the browser.
 EDIT_MAX_VERTICES = 300
 SIMPLIFY_TOLERANCES_M = (0.1, 0.25, 0.5, 1, 2, 5)
@@ -169,6 +171,18 @@ def read_shp_zip(upload, satu_feature=True):
     satu_feature: exactly one feature (a CCTV boundary). Otherwise any number of them (a work area),
     returned as (MultiPolygon of every feature, not yet dissolved; feature count).
     """
+    return _from_zip(upload, _read_shapefile if satu_feature else _read_work_area)
+
+
+def read_features_zip(upload):
+    """A zipped shapefile with one polygon per CCTV -> [{'no_cctv', 'geom', 'error'}].
+
+    A problem with the whole file raises GeometryError; a problem with one feature is its 'error'.
+    """
+    return _from_zip(upload, _read_features)
+
+
+def _from_zip(upload, read):
     try:
         archive = zipfile.ZipFile(upload)
     except zipfile.BadZipFile as exc:
@@ -185,38 +199,76 @@ def read_shp_zip(upload, satu_feature=True):
         missing = [ext for ext, member in parts.items() if member is None]
         if missing:
             raise GeometryError(f'Shapefile tidak lengkap, tidak ada {", ".join(missing)}.')
-        with tempfile.TemporaryDirectory() as folder:
+        # On Windows a refused file is still open in GDAL while the error unwinds; it must stay that error.
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
             # Written under fixed names: no path from the zip ever reaches the disk.
             for ext, member in parts.items():
                 with archive.open(member) as source, open(f'{folder}/boundary{ext}', 'wb') as target:
                     target.write(source.read())
-            return _read_shapefile(f'{folder}/boundary.shp', satu_feature)
+            return read(f'{folder}/boundary.shp')
 
 
-def _read_shapefile(path, satu_feature=True):
+def _open_layer(path):
     try:
-        layer = DataSource(path)[0]
+        return DataSource(path)[0]
     except (GDALException, IndexError) as exc:
         raise GeometryError('Shapefile tidak terbaca.') from exc
-    if satu_feature and layer.num_feat != 1:
-        raise GeometryError(f'Shapefile harus berisi tepat 1 feature (ada {layer.num_feat}).')
-    if not layer.num_feat:
-        raise GeometryError('Shapefile tidak berisi feature.')
+
+
+def _check_crs(layer):
     if layer.srs is None or not _is_utm_50n(layer.srs):
         raise GeometryError('CRS shapefile harus WGS 84 / UTM zone 50N (EPSG:32650).')
+
+
+def _read_shapefile(path):
+    layer = _open_layer(path)
+    if layer.num_feat != 1:
+        raise GeometryError(f'Shapefile harus berisi tepat 1 feature (ada {layer.num_feat}).')
+    _check_crs(layer)
+    return _feature_geom(layer[0], 'Feature 1')
+
+
+def _read_work_area(path):
+    layer = _open_layer(path)
+    if not layer.num_feat:
+        raise GeometryError('Shapefile tidak berisi feature.')
+    _check_crs(layer)
     polygons = []
     for number, feature in enumerate(layer, start=1):
-        ogr = feature.geom
-        # Base type without the Z/M flags (3 = polygon, 6 = multipolygon).
-        if (ogr.geom_type.num & 0x7FFFFFFF) % 1000 not in (3, 6):
-            raise GeometryError(f'Feature {number} harus berupa polygon (bukan {ogr.geom_type.name}).')
-        flat = OGRGeometry(ogr.wkt)
-        flat.set_3d(False)
-        flat.set_measured(False)
-        geom = GEOSGeometry(flat.wkb, srid=UTM_50N).transform(4326, clone=True)
-        polygons.extend([geom] if isinstance(geom, Polygon) else list(geom))
-    result = MultiPolygon(polygons, srid=4326)
-    return result if satu_feature else (result, layer.num_feat)
+        polygons.extend(_feature_geom(feature, f'Feature {number}'))
+    return MultiPolygon(polygons, srid=4326), layer.num_feat
+
+
+def _read_features(path):
+    layer = _open_layer(path)
+    if layer.num_feat == 0:
+        raise GeometryError('Shapefile tidak berisi feature.')
+    if layer.num_feat > SHP_MAX_FEATURES:
+        raise GeometryError(f'Shapefile berisi {layer.num_feat} feature (maksimal {SHP_MAX_FEATURES}).')
+    _check_crs(layer)
+    column = next((name for name in layer.fields if name.lower() == SHP_CCTV_COLUMN), None)
+    if column is None:
+        raise GeometryError(f'Shapefile harus punya kolom {SHP_CCTV_COLUMN} berisi nomor CCTV.')
+    features = []
+    for feature in layer:
+        no_cctv = str(feature.get(column) or '').strip()
+        try:
+            features.append({'no_cctv': no_cctv, 'geom': _feature_geom(feature), 'error': ''})
+        except (GeometryError, GDALException, GEOSException) as exc:
+            features.append({'no_cctv': no_cctv, 'geom': None, 'error': str(exc)})
+    return features
+
+
+def _feature_geom(feature, label='Feature'):
+    ogr = feature.geom
+    # Base type without the Z/M flags (3 = polygon, 6 = multipolygon).
+    if (ogr.geom_type.num & 0x7FFFFFFF) % 1000 not in (3, 6):
+        raise GeometryError(f'{label} harus berupa polygon (bukan {ogr.geom_type.name}).')
+    flat = OGRGeometry(ogr.wkt)
+    flat.set_3d(False)
+    flat.set_measured(False)
+    geom = GEOSGeometry(flat.wkb, srid=UTM_50N).transform(4326, clone=True)
+    return MultiPolygon(geom, srid=4326) if isinstance(geom, Polygon) else geom
 
 
 def _batas_site():

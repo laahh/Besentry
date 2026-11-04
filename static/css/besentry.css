@@ -349,10 +349,160 @@
   width: 14px;
   height: 14px;
 }
+.pengajuan-step-pic {
+  display: block;
+  max-width: 190px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 400;
+  color: #6c757d;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .pengajuan-stepper .aktif .pengajuan-step-no,
 .pengajuan-stepper .selesai .pengajuan-step-no {
   background: #2c323f;
   color: #fff;
+}
+
+/* Tasklist: the progress of one request beside the list of tasks */
+.progres-vertikal {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.progres-vertikal li {
+  position: relative;
+  display: flex;
+  gap: 14px;
+  padding-bottom: 24px;
+}
+.progres-vertikal li:last-child {
+  padding-bottom: 0;
+}
+.progres-vertikal li:not(:last-child)::before {
+  position: absolute;
+  top: 34px;
+  bottom: 2px;
+  left: 16px;
+  width: 2px;
+  background: #e6e9eb;
+  content: '';
+}
+.progres-vertikal li.selesai::before {
+  background: #2c323f;
+}
+.progres-no {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 2px solid #e6e9eb;
+  border-radius: 50%;
+  color: #8a9199;
+  font-weight: 600;
+}
+.progres-no svg {
+  width: 16px;
+  height: 16px;
+}
+.selesai > .progres-no,
+.aktif > .progres-no {
+  border-color: #2c323f;
+  background: #2c323f;
+  color: #fff;
+}
+.dikembalikan > .progres-no {
+  border-color: #f8b425;
+  background: #f8b425;
+  color: #2c323f;
+}
+.progres-isi {
+  min-width: 0;
+  padding-top: 5px;
+}
+.progres-judul {
+  font-weight: 600;
+}
+.progres-vertikal li:not(.selesai, .aktif, .dikembalikan) .progres-judul {
+  color: #8a9199;
+}
+.progres-keterangan {
+  margin-top: 2px;
+  color: #6c757d;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.tugas-grup + .tugas-grup {
+  margin-top: 12px;
+}
+.tugas-grup summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  list-style: none;
+  cursor: pointer;
+}
+.tugas-grup summary::-webkit-details-marker {
+  display: none;
+}
+.tugas-grup-judul {
+  font-weight: 600;
+}
+.tugas-grup-judul::before {
+  display: inline-block;
+  width: 16px;
+  content: '▸';
+}
+.tugas-grup[open] .tugas-grup-judul::before {
+  content: '▾';
+}
+/* A stage with many tasks scrolls inside its group, so the other stages stay within reach. */
+.tugas-grup-isi {
+  max-height: 520px;
+  overflow-y: auto;
+}
+.massal-hasil {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.tugas-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e6edef;
+  border-radius: 6px;
+}
+.tugas-item + .tugas-item {
+  margin-top: 8px;
+}
+.tugas-item.dipilih {
+  border-color: #2c323f;
+  background: #f3f7f6;
+}
+.dark-only .tugas-item.dipilih {
+  background: transparent;
+}
+.tugas-link {
+  flex: 1;
+  min-width: 0;
+  color: inherit;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.tugas-link:hover {
+  color: inherit;
+}
+.tugas-item .btn {
+  flex: none;
 }
 
 /* Warning Safety on the CCTV page: unticked checklist and Safety's note, side by side. */

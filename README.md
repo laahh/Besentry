@@ -173,10 +173,16 @@ python manage.py buat_role_cctv
 
 **Snapshot mingguan** (service `snapshot`, `python manage.py snapshot_mingguan --tunggu`): setiap Senin 00.00 WITA menyimpan kondisi semua CCTV, boundary, dan status pengajuan ke `SnapshotMingguan` untuk week yang baru ditutup. Week yang sudah ditutup tidak diubah lagi. Jika service mati saat cut-off, week itu ditutup saat service hidup lagi, dengan data saat itu.
 
-**Notifikasi** (app `notifikasi`). Setiap langkah pengajuan mengirim WhatsApp (**Fonnte**) dan email ke tahap berikutnya: Survey Mitra dalam Coverage CCTV-nya, Survey BC + PIC SGI site itu (menu *Pengaturan > PIC SGI*), Safety BC, atau IT pengaju saat Return to IT. Nomor WA diambil dari data karyawan SID user tersebut, email dari akun atau data karyawan.
+**Notifikasi** (app `notifikasi`). Setiap langkah pengajuan mengirim WhatsApp (**Fonnte**) dan email ke PIC tahap berikutnya. PIC diatur di menu *Pengaturan > Master PIC*: satu karyawan per tahap (IT, Survey Mitra, Survey BC, Safety BC), dengan cakupan site dan perusahaan (kosong = semua). Tahap tanpa PIC yang cocok jatuh ke user pemegang role tahap itu. Saat Return to IT, IT pengaju selalu ikut diberi tahu. Saat Approved, PIC semua tahap dan IT pengaju diberi tahu beserta feedback Safety. Pengubahan data tanpa perubahan geometri langsung Approved tanpa notifikasi. Jika sebuah langkah tidak punya penerima, user yang mengerjakannya mendapat peringatan. Nomor WA diambil dari data karyawan SID user tersebut, email dari akun atau data karyawan.
+
+**Tasklist** (`/cctv/tasklist/`) menampilkan pengajuan terbuka yang menunggu user yang login, berdampingan dengan progress satu pengajuan. Pemilik tugas mengikuti aturan notifikasi di atas; draft hanya milik pembuatnya, dan admin bisa melihat tugas semua PIC. Tugas dikelompokkan per tahap.
+
+**Upload SHP sekaligus** (`/cctv/tasklist/upload-shp/`) mengerjakan banyak tugas digitasi dengan satu shapefile: satu polygon per CCTV dalam UTM 50N, dengan kolom `no_cctv` berisi nomor CCTV. *Cek file* menampilkan hasil per CCTV tanpa menyimpan; *Kirim* meneruskan yang lolos ke Survey BC dan yang lain tetap di Survey Mitra. Penerima mendapat satu pesan ringkasan per upload.
+
+Karyawan yang di-assign otomatis mendapat akses tahapnya setelah pernah login, dan kehilangan akses itu saat dinonaktifkan atau dihapus dari Master PIC. Detail koneksi dan hapus CCTV tetap khusus role IT. Survey BC dan Safety BC tetap bisa me-review semua site; cakupan mereka hanya membatasi siapa yang dinotifikasi.
 
 - Kredensial di `.env`: `FONNTE_TOKEN`, `MAIL_BACKUP_*` (SMTP), `SITE_URL` (dasar link di pesan).
-- Setiap pesan dicatat (`Notifikasi`: terkirim/gagal + alasannya). Dari halaman PIC SGI bisa *Tes kirim* dan *Kirim ulang*.
+- Setiap pesan dicatat (`Notifikasi`: terkirim/gagal + alasannya). Dari halaman Master PIC bisa *Tes kirim* dan *Kirim ulang*.
 - Default dikirim langsung setelah data tersimpan. Di produksi set `NOTIFIKASI_ASYNC=True` dan jalankan service `notifier` (`python manage.py rqworker notifikasi`), supaya penyimpanan tidak menunggu Fonnte/SMTP.
 
 **Import dari spreadsheet.** Download Google Sheets sebagai `.xlsx` (File > Download > Microsoft Excel), lalu:

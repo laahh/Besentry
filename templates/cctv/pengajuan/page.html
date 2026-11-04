@@ -27,11 +27,11 @@
 <div class="card">
   <div class="card-body py-3">
     <ol class="pengajuan-stepper">
-      {% for key, label, done, current in tabs %}
+      {% for key, label, done, current, pics in tabs %}
       <li class="{% if done %}selesai{% elif current %}aktif{% endif %}{% if key == tab %} dibuka{% endif %}">
         {% if p %}<a href="?tab={{ key }}">{% else %}<span>{% endif %}
           <span class="pengajuan-step-no">{% if done %}<i data-feather="check"></i>{% else %}{{ forloop.counter }}{% endif %}</span>
-          <span>{{ label }}</span>
+          <span>{{ label }}{% if pics %}<span class="pengajuan-step-pic" title="{{ pics|join:', ' }}">PIC: {{ pics|join:", " }}</span>{% endif %}</span>
         {% if p %}</a>{% else %}</span>{% endif %}
       </li>
       {% endfor %}

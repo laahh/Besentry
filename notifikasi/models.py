@@ -4,7 +4,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from core.models import Site
+from core.models import Perusahaan, Site
 
 
 def normalise_wa(number):
@@ -15,30 +15,56 @@ def normalise_wa(number):
     return digits
 
 
-class PicSgi(models.Model):
-    """Who at Survey & Geospatial Information (Survey BC) hears when a request waits for their review."""
+class Pic(models.Model):
+    """Who is in charge of one stage of the CCTV change request, for a site and perusahaan.
 
+    A PIC is told when a request reaches their stage (notifikasi.services) and may work on that
+    stage once their employee record has a login (cctv.access.get_scope). An empty site or
+    perusahaan means all of them.
+    """
+
+    class Tahap(models.TextChoices):
+        # Same keys as the tabs of the request page (cctv.pengajuan_views.TABS).
+        IT = 'it', 'IT'
+        MITRA = 'mitra', 'Survey Mitra'
+        SGI = 'sgi', 'Survey BC (SGI)'
+        SAFETY = 'safety', 'Safety BC'
+
+    tahap = models.CharField('Tahap', max_length=10, choices=Tahap.choices)
     # Picked from the employees synced from SID; nama/email/no_wa are copied from it and can be edited.
     karyawan = models.ForeignKey(
-        'core.Karyawan', null=True, blank=True, on_delete=models.SET_NULL, related_name='pic_sgi',
+        'core.Karyawan', null=True, blank=True, on_delete=models.SET_NULL, related_name='pic',
     )
     nama = models.CharField(max_length=150)
     no_wa = models.CharField('No. WhatsApp', max_length=20, blank=True, help_text='Mis. 081234567890.')
     email = models.EmailField(blank=True)
     site = models.ForeignKey(
-        Site, null=True, blank=True, on_delete=models.CASCADE, related_name='pic_sgi',
-        help_text='Kosong = menerima notifikasi semua site.',
+        Site, null=True, blank=True, on_delete=models.CASCADE, related_name='pic',
+        help_text='Kosong = semua site.',
+    )
+    perusahaan = models.ForeignKey(
+        Perusahaan, null=True, blank=True, on_delete=models.CASCADE, related_name='pic',
+        help_text='Kosong = semua perusahaan.',
     )
     aktif = models.BooleanField(default=True)
     dibuat = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['nama']
-        verbose_name = 'PIC SGI'
-        verbose_name_plural = 'PIC SGI'
+        ordering = ['tahap', 'nama']
+        verbose_name = 'PIC'
+        verbose_name_plural = 'PIC'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['karyawan', 'tahap', 'site', 'perusahaan'], nulls_distinct=False,
+                condition=models.Q(karyawan__isnull=False), name='pic_unik_per_tahap',
+            ),
+        ]
 
     def __str__(self):
-        return self.nama
+        return f'{self.nama} ({self.get_tahap_display()})'
+
+    def covers(self, cctv):
+        return self.site_id in (None, cctv.site_id) and self.perusahaan_id in (None, cctv.perusahaan_id)
 
     def clean(self):
         self.no_wa = normalise_wa(self.no_wa)
@@ -67,7 +93,7 @@ class Notifikasi(models.Model):
         TERKIRIM = 'terkirim', 'Terkirim'
         GAGAL = 'gagal', 'Gagal'
 
-    pic = models.ForeignKey(PicSgi, null=True, on_delete=models.SET_NULL, related_name='notifikasi')
+    pic = models.ForeignKey(Pic, null=True, on_delete=models.SET_NULL, related_name='notifikasi')
     kanal = models.CharField(max_length=10, choices=Kanal.choices)
     tujuan = models.CharField(max_length=150, help_text='Nomor WA atau email saat dikirim.')
     jenis = models.CharField(max_length=20, choices=Jenis.choices)
