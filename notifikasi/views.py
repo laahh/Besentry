@@ -1,4 +1,4 @@
-"""Master PIC SGI and the notification log (Pengaturan > PIC SGI)."""
+"""Master PIC of the change request stages and the notification log (Pengaturan > Master PIC)."""
 
 import re
 
@@ -9,6 +9,7 @@ from django.db import transaction
 from django.db.models import Case, Q, When
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from core.karyawan_sync import karyawan_by_sid
@@ -17,7 +18,7 @@ from navigation import roles
 
 from . import services
 from .forms import PicForm
-from .models import Notifikasi, PicSgi
+from .models import Notifikasi, Pic
 
 MANAGERS = (roles.ADMIN_HAZARD_MOTION,)
 LOG_LIMIT = 50
@@ -26,6 +27,11 @@ LOG_LIMIT = 50
 def _check_manager(user):
     if not roles.has_any_role(user, roles.user_group_names(user), MANAGERS):
         raise PermissionDenied
+
+
+def _pic_page(tahap):
+    """Back to the master PIC page, on the tab of this stage."""
+    return redirect(f"{reverse('notifikasi:pic_list')}?tab={tahap}")
 
 
 def _report(request, rows, what):
@@ -41,14 +47,22 @@ def _report(request, rows, what):
 @login_required
 def pic_list(request):
     _check_manager(request.user)
-    form = PicForm(request.POST or None)
+    # A refused assignment stays on the stage it was for, so the form and its list stay together.
+    tab = request.POST.get('tahap') or request.GET.get('tab')
+    if tab not in Pic.Tahap.values:
+        tab = Pic.Tahap.IT.value
+    form = PicForm(request.POST or None, initial={'tahap': tab})
     if request.method == 'POST' and form.is_valid():
         pic = form.save()
         messages.success(request, f'PIC {pic.nama} ditambahkan.')
-        return redirect('notifikasi:pic_list')
+        return _pic_page(pic.tahap)
+    pics = list(Pic.objects.select_related('site', 'perusahaan', 'karyawan'))
     return render(request, 'notifikasi/pic_list.html', {
         'form': form,
-        'pics': PicSgi.objects.select_related('site', 'karyawan__perusahaan'),
+        'tab': tab,
+        'tabs': [(value, label, sum(pic.tahap == value for pic in pics)) for value, label in Pic.Tahap.choices],
+        'tab_label': Pic.Tahap(tab).label,
+        'pics': [pic for pic in pics if pic.tahap == tab],
         'log': Notifikasi.objects.select_related('pic', 'cctv')[:LOG_LIMIT],
     })
 
@@ -56,12 +70,12 @@ def pic_list(request):
 @login_required
 def pic_update(request, pk):
     _check_manager(request.user)
-    pic = get_object_or_404(PicSgi, pk=pk)
+    pic = get_object_or_404(Pic, pk=pk)
     form = PicForm(request.POST or None, instance=pic)
     if request.method == 'POST' and form.is_valid():
         form.save()
         messages.success(request, f'PIC {pic.nama} disimpan.')
-        return redirect('notifikasi:pic_list')
+        return _pic_page(pic.tahap)
     return render(request, 'notifikasi/pic_form.html', {'form': form, 'pic': pic})
 
 
@@ -99,21 +113,21 @@ def cari_karyawan(request):
 @require_POST
 def pic_delete(request, pk):
     _check_manager(request.user)
-    pic = get_object_or_404(PicSgi, pk=pk)
+    pic = get_object_or_404(Pic, pk=pk)
     pic.delete()  # its log rows stay, with the PIC set to empty
     messages.success(request, f'PIC {pic.nama} dihapus.')
-    return redirect('notifikasi:pic_list')
+    return _pic_page(pic.tahap)
 
 
 @login_required
 @require_POST
 def pic_test(request, pk):
     _check_manager(request.user)
-    pic = get_object_or_404(PicSgi, pk=pk)
+    pic = get_object_or_404(Pic, pk=pk)
     with transaction.atomic():
         rows = services.notify_test(pic, request.user)
     _report(request, rows, f'Tes ke {pic.nama}')
-    return redirect('notifikasi:pic_list')
+    return _pic_page(pic.tahap)
 
 
 @login_required

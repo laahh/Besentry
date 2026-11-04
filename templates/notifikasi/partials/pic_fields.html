@@ -1,5 +1,6 @@
 {# PIC form fields with the employee search. Uses form, and pic (on the edit page). #}
 {% for error in form.non_field_errors %}<div class="col-12"><div class="alert alert-danger">{{ error }}</div></div>{% endfor %}
+{% include "partials/field.html" with field=form.tahap col="col-12" %}
 <div class="col-12 mb-3 position-relative">
   <label class="form-label" for="pic-cari">{{ form.sid.label }} <span class="text-danger">*</span></label>
   <input class="form-control" type="search" id="pic-cari" autocomplete="off"
@@ -17,4 +18,5 @@
 {% include "partials/field.html" with field=form.no_wa col="col-12" %}
 {% include "partials/field.html" with field=form.email col="col-12" %}
 {% include "partials/field.html" with field=form.site col="col-12" %}
+{% include "partials/field.html" with field=form.perusahaan col="col-12" %}
 {% include "partials/field.html" with field=form.aktif col="col-12" %}

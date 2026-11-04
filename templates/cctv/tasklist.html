@@ -1,0 +1,95 @@
+{% extends "layout/base.html" %}
+{% load pengguna %}
+
+{% block title %}Tasklist{% endblock %}
+{% block page_title %}Tasklist{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item active">Tasklist</li>
+{% endblock %}
+{% block page_actions %}
+{% if can_see_all %}
+<div class="btn-group">
+  <a class="btn btn-sm {% if show_all %}btn-primary{% else %}btn-light{% endif %}" href="{% querystring lihat=None p=None page=None %}">Semua PIC</a>
+  <a class="btn btn-sm {% if show_all %}btn-light{% else %}btn-primary{% endif %}" href="{% querystring lihat='saya' p=None page=None %}">Tugas saya</a>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% include "partials/messages.html" %}
+
+<div class="row">
+  <div class="col-xl-8">
+    <div class="card">
+      <div class="card-header pb-0">
+        <h5>{% if show_all %}Tugas semua PIC{% else %}Tugas saya{% endif %} <span class="f-12 text-muted">({{ rows|length }})</span></h5>
+      </div>
+      <div class="card-body">
+        {% for group in groups %}
+        <details class="tugas-grup"{% if group.buka %} open{% endif %}>
+          <summary>
+            <span class="tugas-grup-judul">{{ group.label }} <span class="f-12 text-muted">({{ group.rows|length }})</span></span>
+            {% if group.key == 'mitra' and can_upload_many %}<a class="btn btn-outline-primary btn-xs" href="{% url 'cctv:digitasi_massal' %}">Upload SHP sekaligus</a>{% endif %}
+          </summary>
+          <div class="tugas-grup-isi">
+            {% for row in group.rows %}
+            <div class="tugas-item{% if row.p.pk == selected.pk %} dipilih{% endif %}">
+              <a class="tugas-link" href="{% querystring p=row.p.pk %}">
+                <span class="d-flex flex-wrap align-items-center gap-2">
+                  <span class="f-w-600">{{ row.p.no_cctv }}</span>
+                  <span class="badge badge-{{ row.p.badge }}{% if row.p.badge == 'light' %} text-dark{% endif %}">{{ row.p.get_status_display }}</span>
+                </span>
+                <span class="d-block mt-1">{{ row.tugas }}</span>
+                <span class="d-block f-12 text-muted mt-1">
+                  {% if row.p.cctv_id %}{{ row.p.cctv.site.kode }} · {{ row.p.cctv.perusahaan.nama }} · {% endif %}{% if row.pics %}PIC: {{ row.pics|join:", " }} · {% endif %}{% if row.p.minggu %}{{ row.p.minggu_label }} · {% endif %}{{ row.p.diubah|timesince }} lalu
+                </span>
+              </a>
+              <a class="btn btn-primary btn-xs" href="{% url 'cctv:pengajuan' row.p.pk %}">Buka</a>
+            </div>
+            {% endfor %}
+          </div>
+        </details>
+        {% empty %}
+        <p class="empty-state mb-0">Tidak ada tugas.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-xl-4">
+    <div class="card">
+      <div class="card-header pb-0">
+        <h5>Progress</h5>
+        {% if selected %}<p class="f-12 text-muted mb-0 mt-1">{{ selected.no_cctv }} · {{ selected.get_jenis_display }}</p>{% endif %}
+      </div>
+      <div class="card-body">
+        {% if steps %}
+        <ol class="progres-vertikal">
+          {% for step in steps %}
+          <li class="{% if step.selesai %}selesai{% elif step.dikembalikan %}dikembalikan{% elif step.aktif %}aktif{% endif %}">
+            <span class="progres-no">{% if step.selesai %}<i data-feather="check"></i>{% else %}{{ step.nomor }}{% endif %}</span>
+            <div class="progres-isi">
+              <div class="progres-judul">{{ step.label }}</div>
+              {% if step.tugas %}<div class="progres-keterangan">{{ step.tugas }}</div>{% endif %}
+              {% if step.catatan %}<div class="progres-keterangan text-danger">Catatan: {{ step.catatan }}</div>{% endif %}
+              {% if step.oleh %}<div class="progres-keterangan">{{ step.oleh.user|nama_user:"Sistem" }}, {{ step.oleh.waktu|date:"d M H:i" }}</div>
+              {% elif step.punya_pic and not step.selesai %}<div class="progres-keterangan">{% if step.pics %}PIC: {{ step.pics|join:", " }}{% else %}Belum ada PIC{% endif %}</div>{% endif %}
+            </div>
+          </li>
+          {% endfor %}
+        </ol>
+        {% else %}
+        <p class="text-muted mb-0">Pilih tugas untuk melihat progress-nya.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scriptcontent %}
+<script>
+  // A long stage scrolls inside its group: keep the selected task in view after the reload.
+  document.querySelector('.tugas-item.dipilih')?.scrollIntoView({ block: 'nearest' });
+</script>
+{% endblock %}

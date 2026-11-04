@@ -45,6 +45,7 @@ class MenuSection:
 MAIN_MENU = (
     MenuSection('Umum', (
         MenuItem('Dashboard', 'home', url_name='dashboard:index', groups=(roles.ADMIN_HAZARD_MOTION,)),
+        MenuItem('Tasklist', 'check-square', url_name='cctv:tasklist', check='cctv.access.can_open'),
     )),
     MenuSection('Kesiapan Alat', (
         MenuItem('CCTV Management', 'camera', children=(
@@ -65,7 +66,7 @@ MAIN_MENU = (
     MenuSection('Pengaturan', (
         MenuItem('Role & Akses', 'user-check', url_name='pengaturan:role_list', groups=(roles.ADMIN_HAZARD_MOTION,)),
         MenuItem('Pengguna', 'users', url_name='pengaturan:user_list', groups=(roles.ADMIN_HAZARD_MOTION,)),
-        MenuItem('PIC SGI', 'bell', url_name='notifikasi:pic_list', groups=(roles.ADMIN_HAZARD_MOTION,)),
+        MenuItem('Master PIC', 'bell', url_name='notifikasi:pic_list', groups=(roles.ADMIN_HAZARD_MOTION,)),
     )),
     MenuSection('Sistem', (
         MenuItem('Zona', 'layers', url_name='admin:core_zona_changelist'),

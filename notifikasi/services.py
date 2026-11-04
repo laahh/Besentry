@@ -2,9 +2,10 @@
 
     notify_pengajuan(pengajuan, user)   # after every step of the flow (cctv.coverage)
 
-Waiting Survey Mitra / Return to Survey Mitra: Survey Mitra users whose scope holds the CCTV.
-Waiting Survey BC / Return to SGI: Survey BC users and the PIC SGI of the CCTV's site.
-Waiting Safety BC: Safety BC users. Return to IT: the IT user who submitted.
+The master PIC (notifikasi.models.Pic) says who that is: the stage's PICs whose site and perusahaan
+match the CCTV. A stage nobody is assigned to falls back to the users holding its role, so no
+request goes unnoticed. On Return to IT, the IT user who submitted is always told as well. Once the
+request is approved, everyone involved is told: every stage, and the IT user who submitted.
 
 Messages are logged as Notifikasi rows first, then sent on the `notifikasi` queue once the
 transaction commits (synchronously unless NOTIFIKASI_ASYNC=True and a worker runs).
@@ -23,15 +24,30 @@ from django.utils import timezone
 from navigation import roles
 
 from . import channels
-from .models import Notifikasi, PicSgi, normalise_wa
+from .models import Notifikasi, Pic, normalise_wa
 
 logger = logging.getLogger(__name__)
 
 QUEUE = 'notifikasi'
+STATUS_TAHAP = {
+    'menunggu_mitra': Pic.Tahap.MITRA,
+    'return_mitra': Pic.Tahap.MITRA,
+    'menunggu_sgi': Pic.Tahap.SGI,
+    'return_sgi': Pic.Tahap.SGI,
+    'menunggu_safety': Pic.Tahap.SAFETY,
+    'return_it': Pic.Tahap.IT,
+}
+FINISHED = ('approved', 'approved_warning')
+BATCH_LISTED = 30  # CCTV numbers named in one message; WhatsApp messages should stay readable
 
 
-def pic_sgi(site_id):
-    return PicSgi.objects.filter(aktif=True).filter(Q(site__isnull=True) | Q(site_id=site_id))
+def pics_for(cctv, tahap=None):
+    """The active PICs covering this CCTV's site and perusahaan, of one stage or of all."""
+    pics = Pic.objects.filter(aktif=True).filter(
+        Q(site__isnull=True) | Q(site_id=cctv.site_id),
+        Q(perusahaan__isnull=True) | Q(perusahaan_id=cctv.perusahaan_id),
+    )
+    return pics.filter(tahap=tahap) if tahap else pics
 
 
 def _users(role):
@@ -47,20 +63,31 @@ def _contacts(user):
 
 
 def recipients(pengajuan):
-    """[(PicSgi or None, WhatsApp, email)] for the stage the request just reached."""
+    """[(Pic or None, WhatsApp, email)] for the stage the request just reached, or all stages when done."""
+    finished = pengajuan.status in FINISHED
+    stages = Pic.Tahap.values if finished else [STATUS_TAHAP[pengajuan.status]]
+    pics, users = [], []
+    for tahap in stages:
+        stage_pics = list(pics_for(pengajuan.cctv, tahap))
+        pics += stage_pics
+        if not stage_pics:
+            users += _role_users(tahap, pengajuan.cctv)
+    if (finished or stages == [Pic.Tahap.IT]) and pengajuan.diajukan_oleh_id:
+        users.append(pengajuan.diajukan_oleh)
+    # PICs first: someone reached both ways is logged under their PIC row.
+    return [(pic, pic.no_wa, pic.email) for pic in pics] + [(None, *_contacts(user)) for user in users]
+
+
+def _role_users(tahap, cctv):
+    """Nobody assigned to the stage: the users holding its role."""
     from cctv.access import get_scope
-    Status = type(pengajuan).Status
-    cctv = pengajuan.cctv
-    users, pics = [], []
-    if pengajuan.status in (Status.MENUNGGU_MITRA, Status.RETURN_MITRA):
-        users = [u for u in _users(roles.SURVEY_MITRA) if get_scope(u).can_digitize(cctv)]
-    elif pengajuan.status in (Status.MENUNGGU_SGI, Status.RETURN_SGI):
-        users, pics = list(_users(roles.SURVEY_BC)), list(pic_sgi(cctv.site_id))
-    elif pengajuan.status == Status.MENUNGGU_SAFETY:
-        users = list(_users(roles.SAFETY))
-    elif pengajuan.status == Status.RETURN_IT and pengajuan.diajukan_oleh_id:
-        users = [pengajuan.diajukan_oleh]
-    return [(None, *_contacts(user)) for user in users] + [(pic, pic.no_wa, pic.email) for pic in pics]
+    if tahap == Pic.Tahap.MITRA:
+        return [user for user in _users(roles.SURVEY_MITRA) if get_scope(user).can_digitize(cctv)]
+    if tahap == Pic.Tahap.SGI:
+        return list(_users(roles.SURVEY_BC))
+    if tahap == Pic.Tahap.SAFETY:
+        return list(_users(roles.SAFETY))
+    return []
 
 
 TODO = {
@@ -70,6 +97,8 @@ TODO = {
     'return_sgi': 'Safety mengembalikan ke Survey BC. Mohon review ulang:',
     'menunggu_safety': 'Mohon review dan beri keputusan Safety:',
     'return_it': 'Pengajuan dikembalikan ke IT. Mohon perbaiki data CCTV:',
+    'approved': 'Pengajuan selesai, boundary sudah sah dan berlaku:',
+    'approved_warning': 'Pengajuan selesai dengan catatan, boundary sudah berlaku:',
 }
 
 
@@ -91,6 +120,10 @@ def _message(pengajuan, user):
     last = pengajuan.riwayat.filter(aksi='dikembalikan').order_by('-waktu').first()
     if pengajuan.status.startswith('return') and last:
         lines += ['', f'Catatan: {last.catatan}']
+    if pengajuan.status in FINISHED:
+        lines += ['', f'Feedback Safety: {pengajuan.feedback_safety}']
+        if pengajuan.status == 'approved_warning':
+            lines.append('Belum terpenuhi: ' + '; '.join(pengajuan.checklist_safety_kurang))
     if cctv.posisi:
         lines.append(f'Peta: https://maps.google.com/?q={cctv.posisi.y:.6f},{cctv.posisi.x:.6f}')
     who = (user.get_full_name() or user.get_username()) if user else 'Sistem'
@@ -126,11 +159,45 @@ def notify_pengajuan(pengajuan, user):
     return _queue_rows(Notifikasi.objects.bulk_create(rows))
 
 
+def notify_batch(pengajuans, user):
+    """One message per person for requests that reached a stage together, not one per request."""
+    targets = {}  # (kanal, tujuan) -> (Pic or None, CCTV numbers)
+    for pengajuan in pengajuans:
+        for pic, wa, email in recipients(pengajuan):
+            for kanal, tujuan in ((Notifikasi.Kanal.WA, wa), (Notifikasi.Kanal.EMAIL, email)):
+                if tujuan:
+                    targets.setdefault((kanal, tujuan), (pic, []))[1].append(pengajuan.cctv.no_cctv)
+    status = pengajuans[0].get_status_display()
+    rows = []
+    for (kanal, tujuan), (pic, numbers) in targets.items():
+        judul = f'[BeSentry] {status}: {len(numbers)} CCTV'
+        rows.append(Notifikasi(pic=pic, kanal=kanal, tujuan=tujuan, jenis=Notifikasi.Jenis.PENGAJUAN, judul=judul,
+                               pesan=_batch_message(pengajuans[0], numbers, user), dipicu_oleh=user))
+    return _queue_rows(Notifikasi.objects.bulk_create(rows))
+
+
+def _batch_message(pengajuan, numbers, user):
+    listed = [f'- {number}' for number in numbers[:BATCH_LISTED]]
+    if len(numbers) > BATCH_LISTED:
+        listed.append(f'- dan {len(numbers) - BATCH_LISTED} CCTV lainnya')
+    who = user.get_full_name() or user.get_username()
+    return '\n'.join([
+        f'*{pengajuan.get_status_display()}: {len(numbers)} CCTV*',
+        '',
+        *listed,
+        '',
+        f'Oleh: {who}, {timezone.localtime():%d %b %Y %H:%M} WITA',
+        '',
+        TODO.get(pengajuan.status, 'Detail pengajuan:'),
+        settings.SITE_URL.rstrip('/') + reverse('cctv:tasklist'),
+    ])
+
+
 def notify_test(pic, user):
     """A test message to one PIC on every channel they have."""
     judul = '[BeSentry] Tes notifikasi'
     pesan = (f'Halo {pic.nama}, ini pesan tes dari BeSentry.\n'
-             'Notifikasi CCTV baru dan perubahan lokasi CCTV akan dikirim ke nomor/email ini.')
+             f'Notifikasi pengajuan perubahan CCTV tahap {pic.get_tahap_display()} akan dikirim ke nomor/email ini.')
     rows = [
         Notifikasi(pic=pic, kanal=kanal, tujuan=tujuan, jenis=Notifikasi.Jenis.TES, judul=judul, pesan=pesan,
                    dipicu_oleh=user)

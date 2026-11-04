@@ -1,10 +1,12 @@
 from django.urls import path
 
-from . import pengajuan_views, views
+from . import digitasi_massal_views, pengajuan_views, tasklist_views, views
 
 app_name = 'cctv'
 
 urlpatterns = [
+    path('cctv/tasklist/', tasklist_views.tasklist, name='tasklist'),
+    path('cctv/tasklist/upload-shp/', digitasi_massal_views.digitasi_massal, name='digitasi_massal'),
     path('cctv/database/', views.index, name='index'),
     path('cctv/database/peta.geojson', views.geojson, name='geojson'),
     path('cctv/database/export.csv', views.export_csv, name='export'),

@@ -4,7 +4,7 @@
 {% block page_title %}{{ pic.nama }}{% endblock %}
 {% block breadcrumb %}
 <li class="breadcrumb-item">Pengaturan</li>
-<li class="breadcrumb-item"><a href="{% url 'notifikasi:pic_list' %}">PIC SGI</a></li>
+<li class="breadcrumb-item"><a href="{% url 'notifikasi:pic_list' %}">Master PIC</a></li>
 <li class="breadcrumb-item active">Ubah</li>
 {% endblock %}
 {% block page_actions %}
@@ -23,7 +23,7 @@
         {% include "notifikasi/partials/pic_fields.html" %}
         <div class="col-12 d-flex gap-2">
           <button class="btn btn-primary" type="submit">Simpan</button>
-          <a class="btn btn-light" href="{% url 'notifikasi:pic_list' %}">Batal</a>
+          <a class="btn btn-light" href="{% url 'notifikasi:pic_list' %}?tab={{ pic.tahap }}">Batal</a>
         </div>
       </div>
     </form>

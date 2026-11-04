@@ -1,12 +1,14 @@
 from django.contrib import admin
 
-from .models import Notifikasi, PicSgi
+from .models import Notifikasi, Pic
 
 
-@admin.register(PicSgi)
-class PicSgiAdmin(admin.ModelAdmin):
-    list_display = ('nama', 'no_wa', 'email', 'site', 'aktif')
-    list_filter = ('aktif', 'site')
+@admin.register(Pic)
+class PicAdmin(admin.ModelAdmin):
+    list_display = ('nama', 'tahap', 'no_wa', 'email', 'site', 'perusahaan', 'aktif')
+    list_filter = ('tahap', 'aktif', 'site')
+    list_select_related = ('site', 'perusahaan')
+    raw_id_fields = ('karyawan',)
     search_fields = ('nama', 'no_wa', 'email')
 
 
