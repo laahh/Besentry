@@ -1,0 +1,100 @@
+{# Tab 1: IT fills in the CCTV. Editable in Draft IT and Return to IT; read-only afterwards. #}
+<form method="post" enctype="multipart/form-data" novalidate
+      action="{% if p %}{% url 'cctv:pengajuan_it' p.pk %}{% else %}{% url 'cctv:pengajuan_baru' %}{% endif %}">
+  {% csrf_token %}
+  {% if p.status == 'return_it' %}
+  <div class="alert alert-warning">Dikembalikan ke IT. Perbaiki data lalu <strong>Lanjutkan Digitasi</strong>: alur diulang dari Survey Mitra dengan week baru.</div>
+  {% elif not can.it and p %}
+  <div class="alert alert-light f-12">Data IT sudah diteruskan. Tab ini hanya untuk dibaca; isian di bawah adalah data CCTV saat ini.</div>
+  {% endif %}
+  {% for error in form.non_field_errors %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endfor %}
+
+  <fieldset{% if not can.it %} disabled{% endif %}>
+  <div class="card">
+    <div class="card-header pb-0"><h5>Identitas</h5></div>
+    <div class="card-body row">
+      {% include "partials/field.html" with field=form.no_cctv col="col-md-4" %}
+      {% include "partials/field.html" with field=form.nama col="col-md-8" %}
+      {% include "partials/field.html" with field=form.site col="col-md-4" %}
+      {% include "partials/field.html" with field=form.perusahaan col="col-md-8" %}
+      {% include "partials/field.html" with field=form.kategori col="col-md-3" %}
+      {% include "partials/field.html" with field=form.fungsi col="col-md-3" %}
+      {% include "partials/field.html" with field=form.bentuk_instalasi col="col-md-3" %}
+      {% include "partials/field.html" with field=form.jenis col="col-md-3" %}
+      {% include "partials/field.html" with field=form.status col="col-md-3" %}
+      {% include "partials/field.html" with field=form.kondisi col="col-md-3" %}
+      {% include "partials/field.html" with field=form.control_room col="col-md-6" %}
+      {% include "partials/field.html" with field=form.connected col="col-md-2 col-4" %}
+      {% include "partials/field.html" with field=form.mirrored col="col-md-2 col-4" %}
+      {% include "partials/field.html" with field=form.auto_alert col="col-md-2 col-4" %}
+      {% include "partials/field.html" with field=form.periode_update col="col-md-3" %}
+      {% include "partials/field.html" with field=form.verifikasi_ocr col="col-md-3" %}
+      {% include "partials/field.html" with field=form.keterangan col="col-12" %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header pb-0"><h5>Lokasi</h5></div>
+    <div class="card-body row">
+      {% include "partials/field.html" with field=form.lokasi_pemasangan col="col-md-12" %}
+      {% include "partials/field.html" with field=form.lokasi %}
+      {% include "partials/field.html" with field=form.detail_lokasi %}
+      {% include "partials/field.html" with field=form.kategori_area col="col-md-3" %}
+      {% include "partials/field.html" with field=form.kategori_aktivitas col="col-md-3" %}
+      {% include "partials/field.html" with field=form.longitude col="col-md-3" %}
+      {% include "partials/field.html" with field=form.latitude col="col-md-3" %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header pb-0"><h5>Spesifikasi</h5></div>
+    <div class="card-body row">
+      {% for field in spec_form %}
+      {% include "partials/field.html" with field=field col="col-md-3" %}
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if akses_form %}
+  <div class="card">
+    <div class="card-header pb-0"><h5><i data-feather="lock" class="me-1"></i>Akses</h5></div>
+    <div class="card-body row">
+      {% for field in akses_form %}
+      {% if field.name == 'hapus_password' %}
+      {% if ada_password %}{% include "partials/field.html" with field=field col="col-md-3" %}{% endif %}
+      {% else %}
+      {% include "partials/field.html" with field=field col="col-md-3" %}
+      {% endif %}
+      {% endfor %}
+      <p class="f-12 text-muted mb-0">{% if ada_password %}Password sudah tersimpan (terenkripsi). {% endif %}Password tidak ikut disimpan di draft; isi saat Lanjutkan Digitasi.</p>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-header pb-0"><h5>Pengajuan</h5></div>
+    <div class="card-body row">
+      <div class="col-md-6 mb-3">
+        <label class="form-label" for="{{ it_form.tangkapan_layar.id_for_label }}">{{ it_form.tangkapan_layar.label }} <span class="text-danger">*</span></label>
+        {% if can.it %}{{ it_form.tangkapan_layar }}{% endif %}
+        <div class="form-text">Tangkapan layar terbaru dari kamera, wajib untuk setiap pengajuan (PNG, JPG, atau WEBP, maks. 5 MB).</div>
+        {% for error in it_form.tangkapan_layar.errors %}<div class="text-danger f-12">{{ error }}</div>{% endfor %}
+        {% if p.tangkapan_layar %}
+        <a href="{{ p.tangkapan_url }}" target="_blank" rel="noopener">
+          <img class="verif-tangkapan foto-cctv mt-2" src="{{ p.tangkapan_url }}" alt="Tangkapan layar {{ p.no_cctv }}" loading="lazy">
+        </a>
+        {% endif %}
+      </div>
+      {% include "partials/field.html" with field=it_form.keterangan col="col-md-6" %}
+    </div>
+  </div>
+  </fieldset>
+
+  {% if can.it %}
+  <div class="d-flex flex-wrap gap-2 mb-4">
+    <button class="btn btn-light" type="submit" name="aksi" value="draft">Simpan draft</button>
+    <button class="btn btn-primary" type="submit" name="aksi" value="lanjutkan">Lanjutkan Digitasi</button>
+    <span class="f-12 text-muted align-self-center">Tanpa perubahan koordinat, jenis, radius, azimuth, tilt, atau tinggi pasang, pengajuan langsung Approved.</span>
+  </div>
+  {% endif %}
+</form>

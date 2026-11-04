@@ -1,0 +1,82 @@
+{% load pengguna %}
+{# Tab 2: Survey Mitra compares before (left) with IT's new data (right) and draws the boundary bottom right. #}
+{% if tab not in tab_terbuka %}
+<div class="alert alert-light">Belum sampai tahap ini: IT belum melanjutkan ke digitasi.</div>
+{% else %}
+{% if p.status == 'return_mitra' %}<div class="alert alert-warning">Dikembalikan ke Survey Mitra. Lihat catatannya di riwayat, perbaiki boundary, lalu ajukan lagi.</div>{% endif %}
+
+{% include "cctv/pengajuan/info_cctv.html" %}
+
+<form method="post" action="{% url 'cctv:pengajuan_mitra' p.pk %}" id="form-digitasi">
+  {% csrf_token %}
+  {{ digitasi_form.geom_json }}{{ digitasi_form.nama_shp }}
+  <div class="banding">
+    {% include "cctv/pengajuan/sebelum.html" %}
+
+    <!-- After: IT's new data, and the boundary being drawn -->
+      <div class="card verif-card banding-sisi">
+        <div class="card-body">
+          <h6>Sesudah <span class="text-muted f-12 fw-normal">· data IT baru</span></h6>
+          {% if p.tangkapan_layar %}
+          <a href="{{ p.tangkapan_url }}" target="_blank" rel="noopener">
+            <img class="verif-tangkapan foto-cctv" src="{{ p.tangkapan_url }}" alt="Tangkapan layar {{ p.no_cctv }}" loading="lazy">
+          </a>
+          {% else %}<div class="verif-tangkapan verif-tangkapan-kosong foto-cctv">Tangkapan layar CCTV</div>{% endif %}
+          <div class="f-12 text-muted mt-1 mb-3">Cocokkan objek di foto (ramp, tanggul, rambu) dengan orthophoto, lalu gambar batas area yang benar-benar terlihat.</div>
+          <div class="digitasi-toolbar">
+            {% if can.mitra %}
+            <label class="btn btn-outline-primary btn-xs mb-0" for="shp-input">Upload SHP (.zip)</label>
+            <input class="d-none" type="file" id="shp-input" accept=".zip,application/zip">
+            {% if peta.sebelum.geom %}<button class="btn btn-outline-primary btn-xs" type="button" id="draw-salin">Salin coverage sebelumnya</button>{% endif %}
+            <button class="btn btn-light btn-xs" type="button" id="draw-undo">Undo</button>
+            <button class="btn btn-light btn-xs" type="button" id="draw-hapus">Hapus</button>
+            {% endif %}
+          </div>
+          <div class="peta-gambar digitasi-peta" id="peta-digitasi"></div>
+          <div>
+          <div class="d-flex flex-wrap justify-content-between gap-2 f-12 text-muted mt-2">
+            <span id="draw-status">{% if p.geom %}Boundary tersimpan{% if p.sumber_geom == 'shp' %} dari {{ p.file_shp }}{% endif %} · {{ luas_sesudah|floatformat:2 }} ha{% else %}Belum ada polygon.{% endif %}</span>
+            <span>CRS SHP: WGS 84 / UTM 50N</span>
+          </div>
+          {% if can.mitra %}<div class="f-12 text-danger mt-1" id="shp-error"></div>{% endif %}
+          {% if can.mitra %}<p class="f-12 text-muted mt-2 mb-0">Klik peta untuk menambah titik. Klik titik putih di tengah sisi untuk menyisipkan titik, geser titik untuk memindah, klik kanan titik untuk menghapus. SHP yang diunggah langsung tampil di sini dan bisa diedit. Garis putus-putus = coverage sebelumnya; penanda hitam = posisi kamera baru.</p>{% endif %}
+          </div>
+        </div>
+      </div>
+  </div>
+
+  <!-- Notes and validation -->
+  <div class="row">
+    <div class="col-lg-6">
+      <div class="card verif-card">
+        <div class="card-body">
+          <h6>Catatan untuk Survey BC</h6>
+          {% if can.mitra %}{{ digitasi_form.catatan }}
+          {% elif p.digitasi_pada %}<p class="f-12 mb-0">Diajukan {{ p.digitasi_pada|date:"d M Y H:i" }} oleh {{ p.digitasi_oleh|nama_user }}. Catatan ada di riwayat.</p>
+          {% else %}<p class="f-12 text-muted mb-0">Belum diajukan.</p>{% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card verif-card">
+        <div class="card-body">
+          <h6>Validasi geometri (otomatis)</h6>
+          <ul class="list-unstyled f-12 mb-2">
+            <li>Polygon tertutup dan tidak saling memotong</li>
+            <li>Di dalam batas site (extent orthophoto aktif)</li>
+            <li>Luas kurang dari 200 ha</li>
+            <li>Titik terjauh ≤ {{ jangkauan_m|floatformat:0 }} m dari kamera</li>
+          </ul>
+          <div class="f-12 alert alert-light py-2 mb-0" id="validasi-hasil">Dicek otomatis saat polygon berubah, dan sekali lagi saat <strong>Ajukan ke Survey BC</strong>.</div>
+        </div>
+      </div>
+      {% if can.mitra %}
+      <div class="d-flex gap-2 mb-3">
+        <button class="btn btn-light flex-fill" type="submit" name="aksi" value="draft">Simpan draft</button>
+        <button class="btn btn-primary flex-fill" type="submit" name="aksi" value="kirim">Ajukan ke Survey BC</button>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</form>
+{% endif %}

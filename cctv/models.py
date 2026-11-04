@@ -1,6 +1,9 @@
+import hashlib
+
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.contrib.gis.db import models
+from django.urls import reverse
 from simple_history.models import HistoricalRecords
 
 from core.fields import EncryptedTextField
@@ -106,8 +109,6 @@ class Cctv(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.LIVE)
     kondisi = models.CharField(max_length=20, choices=Kondisi.choices, default=Kondisi.BAIK)
     posisi = models.PointField(srid=4326, null=True, blank=True)
-    # Set only from an approved registrasi; older boundaries are in the history.
-    boundary = models.MultiPolygonField(srid=4326, null=True, blank=True)
     connected = models.BooleanField(default=False)
     mirrored = models.BooleanField(default=False)
     auto_alert = models.BooleanField('Fitur auto alert', default=False)
@@ -214,8 +215,8 @@ class CakupanCctv(models.Model):
     bisa_ubah = models.BooleanField('Boleh tambah/ubah', default=False)
 
     class Meta:
-        verbose_name = 'cakupan akses CCTV'
-        verbose_name_plural = 'cakupan akses CCTV'
+        verbose_name = 'Coverage CCTV'
+        verbose_name_plural = 'Coverage CCTV'
         constraints = [
             models.UniqueConstraint(
                 fields=['group', 'site', 'perusahaan'], nulls_distinct=False, name='cakupan_cctv_unik',
@@ -226,12 +227,20 @@ class CakupanCctv(models.Model):
         return f'{self.group}: {self.site or "semua site"} / {self.perusahaan or "semua perusahaan"}'
 
 
-class CctvCoverage(models.Model):
-    """Coverage polygon of one CCTV for one ISO week."""
 
-    cctv = models.ForeignKey(Cctv, on_delete=models.PROTECT, related_name='coverage')
-    minggu = models.DateField(help_text='Hari Senin pada minggu coverage.')
-    # Empty when the coverage was withdrawn (an approved "Dicabut" request).
+def minggu_label(monday):
+    """'W45 2026' for the ISO week starting on `monday`."""
+    return monday.strftime('W%V %G') if monday else ''
+
+
+class CctvCoverage(models.Model):
+    """Approved coverage polygon of one CCTV, labelled with the week its request was submitted.
+
+    The latest row per CCTV is the approved coverage; older rows are earlier versions.
+    """
+
+    cctv = models.ForeignKey(Cctv, on_delete=models.CASCADE, related_name='coverage')
+    minggu = models.DateField(help_text='Hari Senin pada minggu pengajuan.')
     geom = models.MultiPolygonField(srid=4326, null=True, blank=True)
     dibuat = models.DateTimeField(auto_now_add=True)
 
@@ -251,23 +260,43 @@ class CctvCoverage(models.Model):
 
 
 class PengajuanCoverage(models.Model):
-    """A request to change a CCTV's coverage, reviewed by SGI and then Safety.
+    """One change request for one CCTV: IT -> Survey Mitra -> Survey BC -> Safety BC.
 
-    The approved polygon becomes this week's CctvCoverage (the active version).
+    IT's changes reach the CCTV when IT continues to digitisation; the boundary Survey Mitra
+    draws shows on the map straight away. Safety's approval stores it as a CctvCoverage.
+    The flow lives in cctv.coverage.
     """
 
     class Jenis(models.TextChoices):
-        BARU = 'baru', 'Baru'
-        DIPINDAH = 'dipindah', 'Dipindah'
-        DICABUT = 'dicabut', 'Dicabut'
+        BARU = 'baru', 'CCTV baru'
+        DIPINDAH = 'dipindah', 'Perubahan geometri'
+        UBAH = 'ubah', 'Perubahan data'
 
     class Status(models.TextChoices):
-        # Made automatically when IT adds or moves a CCTV: SGI still has to draw the coverage.
-        MENUNGGU_DIGITASI = 'menunggu_digitasi', 'Menunggu digitasi SGI'
-        MENUNGGU_SGI = 'menunggu_sgi', 'Menunggu SGI'
-        MENUNGGU_SAFETY = 'menunggu_safety', 'Menunggu Safety'
-        DIKEMBALIKAN = 'dikembalikan', 'Dikembalikan'
-        SELESAI = 'selesai', 'Selesai'
+        DRAFT_IT = 'draft_it', 'Draft IT'
+        MENUNGGU_MITRA = 'menunggu_mitra', 'Waiting Survey Mitra'
+        MENUNGGU_SGI = 'menunggu_sgi', 'Waiting Survey BC'
+        MENUNGGU_SAFETY = 'menunggu_safety', 'Waiting Safety BC'
+        RETURN_IT = 'return_it', 'Return to IT'
+        RETURN_MITRA = 'return_mitra', 'Return to Survey Mitra'
+        RETURN_SGI = 'return_sgi', 'Return to SGI'
+        APPROVED = 'approved', 'Approved'
+        APPROVED_WARNING = 'approved_warning', 'Approved with warning'
+
+    SELESAI = (Status.APPROVED, Status.APPROVED_WARNING)
+    # Which tab of the request page works on each status.
+    TAHAP = {
+        Status.DRAFT_IT: 'it', Status.RETURN_IT: 'it',
+        Status.MENUNGGU_MITRA: 'mitra', Status.RETURN_MITRA: 'mitra',
+        Status.MENUNGGU_SGI: 'sgi', Status.RETURN_SGI: 'sgi',
+        Status.MENUNGGU_SAFETY: 'safety',
+        Status.APPROVED: 'selesai', Status.APPROVED_WARNING: 'selesai',
+    }
+    BADGE = {
+        Status.DRAFT_IT: 'light', Status.MENUNGGU_MITRA: 'info', Status.MENUNGGU_SGI: 'info',
+        Status.MENUNGGU_SAFETY: 'info', Status.RETURN_IT: 'warning', Status.RETURN_MITRA: 'warning',
+        Status.RETURN_SGI: 'warning', Status.APPROVED: 'success', Status.APPROVED_WARNING: 'warning',
+    }
 
     CHECKLIST_SGI = (
         ('batas_objek', 'Batas sesuai objek di orthophoto'),
@@ -281,17 +310,32 @@ class PengajuanCoverage(models.Model):
         ('layak_awasi', 'Layak untuk pengawasan berjarak (P-SFO-04)'),
     )
 
-    cctv = models.ForeignKey(Cctv, on_delete=models.PROTECT, related_name='pengajuan_coverage')
+    class SumberGeom(models.TextChoices):
+        GAMBAR = 'gambar', 'Digambar di peta'
+        SHP = 'shp', 'Upload SHP'
+
+    # Empty only while a new CCTV is still a draft: the CCTV is created when IT continues.
+    cctv = models.ForeignKey(Cctv, null=True, blank=True, on_delete=models.CASCADE, related_name='pengajuan_coverage')
     jenis = models.CharField(max_length=10, choices=Jenis.choices)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.MENUNGGU_SGI)
-    geom = models.MultiPolygonField('Usulan coverage', srid=4326, null=True, blank=True)
-    versi = models.PositiveSmallIntegerField(help_text='Nomor versi coverage yang diusulkan.')
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT_IT)
+    minggu = models.DateField(null=True, blank=True, help_text='Hari Senin pada minggu IT melanjutkan ke digitasi.')
+    # IT's form as typed, until IT continues (then it is applied to the CCTV). Never holds a password.
+    data_draft = models.JSONField(default=dict, blank=True)
     tangkapan_layar = models.FileField(upload_to='coverage/tangkapan/%Y/%m/', blank=True)
+    keterangan = models.TextField('Catatan IT', blank=True)
+    # The CCTV as it was before this request, for the "before" side of the reviews.
+    posisi_sebelum = models.PointField(srid=4326, null=True, blank=True)
+    geom_sebelum = models.MultiPolygonField(srid=4326, null=True, blank=True)
+    # The geometry fields IT changed: [[label, before, after], ...]
+    perubahan = models.JSONField(default=list, blank=True)
+    geom = models.MultiPolygonField('Usulan coverage', srid=4326, null=True, blank=True)
+    sumber_geom = models.CharField(max_length=10, choices=SumberGeom.choices, blank=True)
+    file_shp = models.CharField(max_length=255, blank=True)
+    versi = models.PositiveSmallIntegerField(default=1, help_text='Nomor versi coverage yang diusulkan.')
     orthophoto = models.ForeignKey(
         'orthophoto.Orthophoto', null=True, blank=True, on_delete=models.SET_NULL, related_name='+',
         help_text='Orthophoto aktif saat digitasi.',
     )
-    keterangan = models.TextField(blank=True)
     diajukan_oleh = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='pengajuan_coverage',
     )
@@ -301,44 +345,83 @@ class PengajuanCoverage(models.Model):
     digitasi_pada = models.DateTimeField(null=True, blank=True)
     checklist_sgi = models.JSONField(default=list, blank=True)
     checklist_safety = models.JSONField(default=list, blank=True)
-    # Ground control points pairing screenshot pixels with map positions:
-    # {"gcp": [{"px", "py", "lon", "lat"}, ...], "lebar": px, "tinggi": px} (see cctv.coverage.clean_kalibrasi)
-    kalibrasi = models.JSONField(default=dict, blank=True)
-    # Homography check by Safety (cctv.homography.analyse) and the screenshot with the coverage drawn on.
-    analisis = models.JSONField(default=dict, blank=True)
-    bukti = models.FileField(upload_to='coverage/bukti/%Y/%m/', blank=True)
+    feedback_safety = models.TextField(blank=True)
+    selesai = models.DateTimeField(null=True, blank=True)
     dibuat = models.DateTimeField(auto_now_add=True)
     diubah = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['-diubah']
-        verbose_name = 'pengajuan coverage'
-        verbose_name_plural = 'pengajuan coverage'
-        indexes = [models.Index(fields=['status', '-diubah'], name='pengajuan_status')]
+        verbose_name = 'pengajuan perubahan CCTV'
+        verbose_name_plural = 'pengajuan perubahan CCTV'
+        indexes = [
+            models.Index(fields=['status', '-diubah'], name='pengajuan_status'),
+            models.Index(fields=['cctv', '-dibuat'], name='pengajuan_cctv_terbaru'),
+        ]
         constraints = [
-            # One open request per CCTV, so reviewers never compare against a moving target.
+            # One open request per CCTV: a CCTV has exactly one status at a time.
             models.UniqueConstraint(
-                fields=['cctv'], condition=~models.Q(status='selesai'), name='pengajuan_satu_terbuka',
+                fields=['cctv'], condition=~models.Q(status__in=['approved', 'approved_warning']),
+                name='pengajuan_satu_terbuka',
             ),
         ]
 
     def __str__(self):
-        return f'{self.cctv} - {self.get_jenis_display()} ({self.get_status_display()})'
+        return f'{self.no_cctv} - {self.get_status_display()}'
+
+    @property
+    def no_cctv(self):
+        if self.cctv_id:
+            return self.cctv.no_cctv
+        typed = (self.data_draft.get('no_cctv') or [''])[0].strip()  # draft values are lists, as posted
+        return typed or '(CCTV baru)'
 
     @property
     def tahap(self):
-        """The review stage now running: 'sgi', 'safety', or '' when not under review."""
-        return {self.Status.MENUNGGU_SGI: 'sgi', self.Status.MENUNGGU_SAFETY: 'safety'}.get(self.status, '')
+        return self.TAHAP[self.status]
+
+    @property
+    def terbuka(self):
+        return self.status not in self.SELESAI
+
+    @property
+    def badge(self):
+        return self.BADGE[self.status]
+
+    @property
+    def minggu_label(self):
+        return minggu_label(self.minggu)
+
+    @property
+    def label(self):
+        """'Approved W42 2026', as the CCTV list shows it."""
+        return f'{self.get_status_display()} {self.minggu_label}'.strip()
+
+    @property
+    def checklist_safety_kurang(self):
+        """Labels of the Safety checklist items left unticked: why it is Approved with warning."""
+        checked = set(self.checklist_safety)
+        return [label for key, label in self.CHECKLIST_SAFETY if key not in checked]
+
+    @property
+    def tangkapan_url(self):
+        """The screenshot URL; it changes with the file, so browsers never show a cached older one."""
+        if not self.tangkapan_layar:
+            return ''
+        versi = hashlib.sha1(self.tangkapan_layar.name.encode()).hexdigest()[:10]
+        return f"{reverse('cctv:pengajuan_tangkapan', args=[self.pk])}?v={versi}"
 
 
 class RiwayatPengajuan(models.Model):
     class Aksi(models.TextChoices):
-        DIAJUKAN = 'diajukan', 'Mengajukan perubahan'
-        DIGITASI = 'digitasi', 'Mengirim digitasi'
+        DRAFT = 'draft', 'Menyimpan draft'
+        DIAJUKAN = 'diajukan', 'Melanjutkan ke digitasi'
+        OTOMATIS = 'otomatis', 'Disetujui otomatis (tanpa perubahan geometri)'
+        DIGITASI = 'digitasi', 'Mengajukan digitasi ke Survey BC'
         VALIDASI = 'validasi', 'Validasi geometri lolos'
-        KALIBRASI = 'kalibrasi', 'Menyimpan kalibrasi kamera'
-        DISETUJUI_SGI = 'setuju_sgi', 'Disetujui SGI'
-        DISETUJUI_SAFETY = 'setuju_safety', 'Disetujui Safety'
+        DISETUJUI_SGI = 'setuju_sgi', 'Disetujui Survey BC'
+        DISETUJUI_SAFETY = 'setuju_safety', 'Approved'
+        DISETUJUI_WARNING = 'setuju_warning', 'Approved with warning'
         DIKEMBALIKAN = 'dikembalikan', 'Dikembalikan'
 
     pengajuan = models.ForeignKey(PengajuanCoverage, on_delete=models.CASCADE, related_name='riwayat')
@@ -353,30 +436,27 @@ class RiwayatPengajuan(models.Model):
         verbose_name_plural = 'riwayat pengajuan'
 
 
-class KalibrasiKamera(models.Model):
-    """GCPs pairing a CCTV screenshot with the map, solved into a homography (cctv.homography).
+class SnapshotMingguan(models.Model):
+    """Every CCTV as it stood when a week closed (Sunday 24:00 WITA). Rows are never changed.
 
-    One active calibration per camera, reused for later requests; switched off when the CCTV
-    is moved (and Safety recalibrates when the camera was turned).
+    Keeps the CCTV id and number rather than a foreign key, so a deleted CCTV stays in past weeks.
     """
 
-    cctv = models.ForeignKey(Cctv, on_delete=models.CASCADE, related_name='kalibrasi')
-    gambar = models.FileField(upload_to='coverage/kalibrasi/%Y/%m/', help_text='Tangkapan layar yang dikalibrasi.')
-    gcp = models.JSONField(help_text='[{"px", "py", "lon", "lat"}, ...]')
-    lebar = models.PositiveIntegerField()
-    tinggi = models.PositiveIntegerField()
-    hasil = models.JSONField(help_text='Matriks homography, inlier/residual per GCP, RMSE (meter).')
-    aktif = models.BooleanField(default=True)
-    dibuat_oleh = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name='+')
+    minggu = models.DateField(db_index=True, help_text='Hari Senin pada minggu yang ditutup.')
+    cctv_id = models.BigIntegerField()
+    no_cctv = models.CharField(max_length=40)
+    data = models.JSONField(help_text='Field CCTV dan spesifikasinya.')
+    posisi = models.PointField(srid=4326, null=True, blank=True)
+    coverage = models.MultiPolygonField(srid=4326, null=True, blank=True)
+    status_pengajuan = models.CharField(max_length=20, blank=True)
+    minggu_pengajuan = models.DateField(null=True, blank=True)
     dibuat = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['-dibuat']
-        verbose_name = 'kalibrasi kamera'
-        verbose_name_plural = 'kalibrasi kamera'
-        constraints = [
-            models.UniqueConstraint(fields=['cctv'], condition=models.Q(aktif=True), name='kalibrasi_satu_aktif'),
-        ]
+        ordering = ['-minggu', 'no_cctv']
+        verbose_name = 'snapshot mingguan CCTV'
+        verbose_name_plural = 'snapshot mingguan CCTV'
+        constraints = [models.UniqueConstraint(fields=['minggu', 'cctv_id'], name='snapshot_unik_per_minggu')]
 
     def __str__(self):
-        return f'{self.cctv_id} {self.dibuat:%Y-%m-%d} ({len(self.gcp)} GCP)'
+        return f'{self.no_cctv} {minggu_label(self.minggu)}'

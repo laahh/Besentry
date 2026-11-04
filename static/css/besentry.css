@@ -102,48 +102,6 @@
 }
 
 /* Coverage verification */
-.verif-tabs .nav-link {
-  padding: 6px 14px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: #6c757d;
-  font-size: 13px;
-}
-
-.verif-tabs .nav-link.active {
-  background: #fff;
-  border-color: #2c323f;
-  color: #2c323f;
-}
-
-.verif-count {
-  font-size: 12px;
-}
-
-.verif-heading {
-  font-size: 13px;
-  color: #6c757d;
-}
-
-.verif-queue-item {
-  display: block;
-  margin-bottom: 10px;
-  padding: 12px 14px;
-  border: 1px solid #e6edef;
-  border-radius: 8px;
-  background: #fff;
-  color: #2c323f;
-}
-
-.verif-queue-item:hover {
-  color: #2c323f;
-  border-color: #b8c4c7;
-}
-
-.verif-queue-item.active {
-  border: 2px solid #2c323f;
-}
-
 .verif-jenis {
   font-size: 11px;
   font-weight: 500;
@@ -151,7 +109,7 @@
 
 .verif-jenis-dipindah { background: #2c323f; color: #fff; }
 .verif-jenis-baru { background: #eef1f2; color: #2c323f; }
-.verif-jenis-dicabut { background: #fff; color: #2c323f; border: 1px solid #b8c4c7; }
+.verif-jenis-ubah { background: #fff; color: #2c323f; border: 1px solid #b8c4c7; }
 
 .verif-card {
   margin-bottom: 16px;
@@ -177,6 +135,71 @@
   height: 520px;
   border-radius: 8px;
   overflow: hidden;
+}
+
+/* Always a 16:9 box (CCTV streams are 16:9), so before and after line up; any other shape is
+   shown whole inside it rather than stretching the box. */
+.verif-tangkapan.foto-cctv {
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+}
+
+/* Before and after side by side. Both cards share the grid's rows (subgrid), so a longer caption on
+   one side moves both maps down together and they always start at the same height. */
+.banding {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 24px;
+}
+
+.banding-sisi,
+.banding-sisi > .card-body {
+  display: grid;
+  grid-row: span 6;
+  grid-template-rows: subgrid;
+  row-gap: 0;
+}
+
+.banding-sisi > .card-body {
+  grid-row: 1 / -1;
+}
+
+@media (max-width: 991.98px) {
+  .banding {
+    grid-template-columns: 1fr;
+  }
+}
+
+.digitasi-peta {
+  height: 480px;
+}
+
+/* Same height left and right, so both maps line up even when only the right has buttons. */
+.digitasi-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 28px;
+  margin-bottom: 8px;
+}
+
+.digitasi-info {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px 16px;
+  font-size: 13px;
+}
+
+/* One item per row, for the changes: a coordinate pair needs the whole width. */
+.digitasi-info-satu {
+  grid-template-columns: 1fr;
+}
+
+.digitasi-info span {
+  display: block;
+  color: #6c757d;
+  font-size: 12px;
 }
 
 .draw-vertex {
@@ -249,125 +272,6 @@
 }
 
 /* CCTV GeoPoint (static/js/geopoint.js) */
-.gp-kamera {
-  position: relative;
-  border-radius: 6px;
-  overflow: hidden;
-  background: #1b1f22;
-  cursor: crosshair;
-  user-select: none;
-}
-
-.gp-kamera img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.gp-kamera svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-.gp-peta {
-  height: 100%;
-  min-height: 320px;
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.gp-kalibrasi {
-  margin-bottom: 12px;
-  padding: 12px;
-  border: 1px solid #f0d58c;
-  border-radius: 8px;
-  background: #fffbea;
-}
-
-.gp-chip {
-  padding: 3px 8px;
-  border: 1px solid #d6dcde;
-  border-radius: 6px;
-  background: #fff;
-  font-size: 12px;
-}
-
-.gp-chip.aktif {
-  border-color: #2c323f;
-  background: #2c323f;
-  color: #fff;
-}
-
-.gp-chip span {
-  margin-left: 4px;
-  font-size: 11px;
-  opacity: 0.8;
-}
-
-.gp-pin {
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  font-size: 11px;
-  font-weight: 700;
-  color: #1b1f22;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 40%);
-}
-
-.gp-pin-gcp { background: #ffd166; }
-.gp-pin-gcp.aktif { box-shadow: 0 0 0 3px #2c323f; }
-.gp-pin-titik { background: #4dabf7; }
-
-.gp-label {
-  display: inline-grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #4dabf7;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-/* Homography check figures (templates/cctv/coverage/analisis.html) */
-.verif-angka {
-  height: 100%;
-  padding: 10px 12px;
-  border: 1px solid #e6edef;
-  border-radius: 8px;
-  background: #fff;
-}
-
-.verif-angka span {
-  display: block;
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.verif-angka em {
-  font-size: 13px;
-  font-style: normal;
-  font-weight: 400;
-  color: #6c757d;
-}
-
-.verif-angka small {
-  font-size: 11px;
-  color: #6c757d;
-}
-
-.verif-angka.baik span { color: #2f9e44; }
-.verif-angka.sedang span { color: #d97706; }
-.verif-angka.buruk span { color: #dc3545; }
-
-/* PIC SGI: employee search results */
 .pic-hasil {
   position: absolute;
   z-index: 20;
@@ -393,4 +297,98 @@
 .notification-dropdown .noti-empty {
   padding: 12px 0;
   text-align: center;
+}
+
+/* Change request page: five steps, the current one highlighted */
+.pengajuan-stepper {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+}
+.pengajuan-stepper li {
+  flex: 1;
+  min-width: 150px;
+}
+.pengajuan-stepper a,
+.pengajuan-stepper li > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: #8a9199;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.pengajuan-stepper .dibuka a {
+  background: #eef1f2;
+}
+.pengajuan-stepper .aktif,
+.pengajuan-stepper .aktif a {
+  color: #2c323f;
+  font-weight: 600;
+}
+.pengajuan-stepper .selesai a {
+  color: #2c323f;
+}
+.pengajuan-step-no {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #e6e9eb;
+  font-size: 12px;
+}
+.pengajuan-step-no svg {
+  width: 14px;
+  height: 14px;
+}
+.pengajuan-stepper .aktif .pengajuan-step-no,
+.pengajuan-stepper .selesai .pengajuan-step-no {
+  background: #2c323f;
+  color: #fff;
+}
+
+/* Warning Safety on the CCTV page: unticked checklist and Safety's note, side by side. */
+.warning-blok {
+  height: 100%;
+  padding: 12px 16px;
+  border: 1px solid #f0e3b8;
+  border-radius: 6px;
+  background: #fffbec;
+}
+
+.warning-judul {
+  margin-bottom: 8px;
+  color: #6c757d;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.warning-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.warning-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.warning-list svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
 }

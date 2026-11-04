@@ -2,13 +2,15 @@ from django.contrib.auth.admin import GroupAdmin
 from django.contrib.auth.models import Group
 from django.contrib.gis import admin
 
-from .models import CakupanCctv, Cctv, CctvCoverage, ControlRoom, PengajuanCoverage, RiwayatPengajuan
+from .models import (
+    CakupanCctv, Cctv, CctvCoverage, ControlRoom, PengajuanCoverage, RiwayatPengajuan, SnapshotMingguan,
+)
 
 
 class CakupanCctvInline(admin.TabularInline):
     model = CakupanCctv
     extra = 0
-    verbose_name_plural = 'Cakupan akses CCTV (site + perusahaan yang boleh dilihat role ini)'
+    verbose_name_plural = 'Coverage CCTV (site + perusahaan yang boleh dilihat role ini)'
 
 
 admin.site.unregister(Group)
@@ -65,10 +67,27 @@ class RiwayatPengajuanInline(admin.TabularInline):
 
 @admin.register(PengajuanCoverage)
 class PengajuanCoverageAdmin(admin.GISModelAdmin):
-    # Reviewing happens on /cctv/coverage/; admin is for inspection only.
-    list_display = ('cctv', 'jenis', 'status', 'versi', 'diajukan_oleh', 'diubah')
+    # The flow runs on /cctv/pengajuan/<id>/; admin is for inspection only.
+    list_display = ('cctv', 'jenis', 'status', 'minggu', 'versi', 'diajukan_oleh', 'diubah')
     list_filter = ('status', 'jenis')
     list_select_related = ('cctv', 'diajukan_oleh')
     raw_id_fields = ('cctv', 'orthophoto', 'diajukan_oleh', 'digitasi_oleh')
     search_fields = ('cctv__no_cctv',)
     inlines = [RiwayatPengajuanInline]
+
+
+@admin.register(SnapshotMingguan)
+class SnapshotMingguanAdmin(admin.GISModelAdmin):
+    # Closed weeks are locked: read-only here too.
+    list_display = ('no_cctv', 'minggu', 'status_pengajuan', 'minggu_pengajuan')
+    list_filter = ('minggu', 'status_pengajuan')
+    search_fields = ('no_cctv',)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

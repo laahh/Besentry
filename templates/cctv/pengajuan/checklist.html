@@ -1,0 +1,12 @@
+{# One checklist card. Params: judul, items [(key, label, checked)], aktif (the user may tick it now). #}
+<div class="card verif-card{% if not aktif %} verif-muted{% endif %}">
+  <div class="card-body">
+    <h6>{{ judul }}</h6>
+    {% for key, label, checked in items %}
+    <div class="form-check py-1">
+      <input class="form-check-input" type="checkbox" name="checklist" value="{{ key }}" id="ck-{{ key }}"{% if checked %} checked{% endif %}{% if not aktif %} disabled{% endif %}>
+      <label class="form-check-label f-12" for="ck-{{ key }}">{{ label }}</label>
+    </div>
+    {% endfor %}
+  </div>
+</div>

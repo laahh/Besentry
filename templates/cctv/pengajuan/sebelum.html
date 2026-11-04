@@ -1,0 +1,16 @@
+{% comment %}Left side of the Mitra and review tabs: the camera view and the map as they are before this request.
+A .banding grid child with six parts (title, photo, caption, toolbar, map, footer) lined up with the right side.{% endcomment %}
+<div class="card verif-card banding-sisi">
+  <div class="card-body">
+    <h6>Sebelum <span class="text-muted f-12 fw-normal">· yang berlaku sekarang</span></h6>
+    {% if sebelumnya %}
+    <a href="{{ sebelumnya.tangkapan_url }}" target="_blank" rel="noopener">
+      <img class="verif-tangkapan foto-cctv" src="{{ sebelumnya.tangkapan_url }}" alt="Pandangan kamera sebelumnya" loading="lazy">
+    </a>
+    {% else %}<div class="verif-tangkapan verif-tangkapan-kosong foto-cctv">Belum ada foto sebelumnya</div>{% endif %}
+    <div class="f-12 text-muted mt-1 mb-3">{% if sebelumnya %}Pandangan kamera dari pengajuan {{ sebelumnya.minggu_label|default:"sebelumnya" }}{% endif %}</div>
+    <div class="digitasi-toolbar"></div>
+    <div class="peta-gambar digitasi-peta" id="peta-sebelum"></div>
+    <div class="f-12 text-muted mt-2">Titik dan coverage yang berlaku{% if not peta.sebelum.kamera and not peta.sebelum.geom %} · belum ada{% endif %}{% if luas_sebelum %} · {{ luas_sebelum|floatformat:2 }} ha{% endif %}</div>
+  </div>
+</div>

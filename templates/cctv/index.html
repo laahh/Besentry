@@ -9,7 +9,7 @@
 {% endblock %}
 {% block page_actions %}
 <a class="btn btn-outline-primary btn-sm" href="{% url 'cctv:export' %}?{{ request.GET.urlencode }}"><i data-feather="download" class="me-1"></i>Export CSV</a>
-{% if scope.can_create %}<a class="btn btn-primary btn-sm" href="{% url 'cctv:create' %}"><i data-feather="plus" class="me-1"></i>Tambah CCTV</a>{% endif %}
+{% if scope.can_create %}<a class="btn btn-primary btn-sm" href="{% url 'cctv:pengajuan_baru' %}"><i data-feather="plus" class="me-1"></i>Tambah CCTV</a>{% endif %}
 {% endblock %}
 {% block css %}{% include "layout/maplibre.html" %}{% endblock %}
 
@@ -22,6 +22,14 @@
   {% include "dashboard/partials/stat_card.html" with color="primary" icon="alert-triangle" label="Bermasalah" value=stats.bermasalah %}
   {% include "dashboard/partials/stat_card.html" with color="secondary" icon="map-pin" label="Tanpa koordinat" value=stats.tanpa_posisi %}
 </div>
+
+{% if draft_baru %}
+<div class="alert alert-light">
+  <span class="f-w-600">Draft CCTV baru:</span>
+  {% for d in draft_baru %}<a class="ms-2" href="{% url 'cctv:pengajuan' d.pk %}">{{ d.no_cctv }}</a>{% if not forloop.last %},{% endif %}{% endfor %}
+  <span class="f-12 text-muted ms-2">Belum masuk database sampai Lanjutkan Digitasi.</span>
+</div>
+{% endif %}
 
 <!-- Filters -->
 <div class="card">
@@ -49,6 +57,7 @@
       {% include "cctv/partials/filter_select.html" with name="jenis" label="Jenis" options=choices.jenis value=selected.jenis col="col-lg-2" %}
       {% include "cctv/partials/filter_select.html" with name="status" label="Status" options=choices.status value=selected.status col="col-lg-2" %}
       {% include "cctv/partials/filter_select.html" with name="kondisi" label="Kondisi" options=choices.kondisi value=selected.kondisi col="col-lg-2" %}
+      {% include "cctv/partials/filter_select.html" with name="pengajuan" label="Status pengajuan" options=status_pengajuan value=selected.pengajuan col="col-lg-2" %}
       <div class="col-lg-4 col-12 d-flex gap-2">
         <button class="btn btn-primary btn-sm" type="submit"><i data-feather="search" class="me-1"></i>Terapkan</button>
         {% if selected %}<a class="btn btn-light btn-sm" href="{% url 'cctv:index' %}">Reset</a>{% endif %}
@@ -81,6 +90,7 @@
                 <th>Jenis</th>
                 <th>Lokasi pemasangan</th>
                 <th>Control room</th>
+                <th class="text-end">Pengajuan</th>
               </tr>
             </thead>
             <tbody>
@@ -95,6 +105,7 @@
                 <td>{{ cctv.get_jenis_display|default:"-" }}</td>
                 <td>{{ cctv.lokasi_pemasangan|default:"-" }}</td>
                 <td>{{ cctv.control_room.nama|default:"-" }}</td>
+                <td class="text-end text-nowrap">{% if cctv.pengajuan_id %}<a href="{% url 'cctv:pengajuan' cctv.pengajuan_id %}?tab={{ cctv.pengajuan_tab }}"><span class="badge badge-{{ cctv.pengajuan_badge }}">{% if cctv.pengajuan_status == 'approved_warning' %}<i data-feather="alert-triangle" class="me-1"></i>{% endif %}{{ cctv.pengajuan_label }}</span></a>{% else %}<span class="text-muted">-</span>{% endif %}</td>
               </tr>
               {% endfor %}
             </tbody>

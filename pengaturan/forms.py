@@ -46,7 +46,7 @@ class BaseCakupanFormSet(forms.BaseInlineFormSet):
                 continue
             key = (form.cleaned_data.get('site'), form.cleaned_data.get('perusahaan'))
             if key in seen:
-                raise forms.ValidationError('Ada cakupan site + perusahaan yang sama lebih dari sekali.')
+                raise forms.ValidationError('Ada Coverage CCTV site + perusahaan yang sama lebih dari sekali.')
             seen.add(key)
 
 

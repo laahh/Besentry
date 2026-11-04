@@ -16,7 +16,7 @@ def normalise_wa(number):
 
 
 class PicSgi(models.Model):
-    """Who at Survey & Geospatial Information (SGI) hears about new or moved CCTV."""
+    """Who at Survey & Geospatial Information (Survey BC) hears when a request waits for their review."""
 
     # Picked from the employees synced from SID; nama/email/no_wa are copied from it and can be edited.
     karyawan = models.ForeignKey(
@@ -56,6 +56,8 @@ class Notifikasi(models.Model):
         EMAIL = 'email', 'Email'
 
     class Jenis(models.TextChoices):
+        PENGAJUAN = 'pengajuan', 'Pengajuan perubahan CCTV'
+        # Sent before the change request flow; kept so older rows still read.
         CCTV_BARU = 'cctv_baru', 'CCTV baru'
         REPOSISI = 'reposisi', 'Perubahan lokasi CCTV'
         TES = 'tes', 'Tes kirim'

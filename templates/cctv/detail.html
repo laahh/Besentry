@@ -9,21 +9,56 @@
 <li class="breadcrumb-item active">{{ cctv.no_cctv }}</li>
 {% endblock %}
 {% block page_actions %}
-{% if can_edit %}
-<a class="btn btn-outline-primary btn-sm" href="{% url 'cctv:coverage_create' %}?cctv={{ cctv.pk }}"><i data-feather="map"></i>Ajukan coverage</a>
-<a class="btn btn-primary btn-sm" href="{% url 'cctv:update' cctv.pk %}"><i data-feather="edit" class="me-1"></i>Ubah</a>
-{% endif %}
-{% if can_delete %}
-<form method="post" action="{% url 'cctv:delete' cctv.pk %}" class="d-inline" onsubmit="return confirm('Hapus CCTV {{ cctv.no_cctv|escapejs }}? Riwayatnya tetap tersimpan.');">
+{% if terbuka %}
+<a class="btn btn-primary btn-sm" href="{% url 'cctv:pengajuan' terbuka.pk %}"><i data-feather="git-pull-request" class="me-1"></i>Lihat pengajuan</a>
+{% elif can_ajukan %}
+<form method="post" action="{% url 'cctv:ajukan' cctv.pk %}" class="d-inline">
   {% csrf_token %}
-  <button class="btn btn-outline-danger btn-sm" type="submit"><i data-feather="trash-2" class="me-1"></i>Hapus</button>
+  <button class="btn btn-primary btn-sm" type="submit"><i data-feather="edit" class="me-1"></i>Ajukan Perubahan</button>
 </form>
 {% endif %}
+{% if can_delete %}
+<button class="btn btn-outline-danger btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#modal-hapus"><i data-feather="trash-2" class="me-1"></i>Hapus</button>
+{% endif %}
 {% endblock %}
-{% block css %}{% if cctv.posisi %}{% include "layout/maplibre.html" %}{% endif %}{% endblock %}
+{% block css %}{% if cctv.posisi or coverage %}{% include "layout/maplibre.html" %}{% endif %}{% endblock %}
 
 {% block content %}
 {% include "partials/messages.html" %}
+
+{% if pengajuan %}
+<div class="card">
+  <div class="card-body py-3 d-flex flex-wrap align-items-center gap-2">
+    <span class="f-w-600">Status pengajuan:</span>
+    <a href="{% url 'cctv:pengajuan' pengajuan.pk %}"><span class="badge badge-{{ pengajuan.badge }} f-14">{{ pengajuan.label }}</span></a>
+    {% if terbuka %}
+    <span class="f-12 text-muted">Pengajuan berjalan; CCTV tidak bisa dihapus sampai Approved.</span>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if can_delete %}
+<div class="modal fade" id="modal-hapus" tabindex="-1" aria-labelledby="modal-hapus-judul" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form method="post" action="{% url 'cctv:delete' cctv.pk %}" class="modal-content">
+      {% csrf_token %}
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-hapus-judul">Hapus {{ cctv.no_cctv }}?</h5>
+        <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Tutup"></button>
+      </div>
+      <div class="modal-body">
+        <p>CCTV ini akan dihapus beserta coverage-nya, sehingga boundary-nya hilang dari peta.</p>
+        <p class="f-12 text-muted mb-0">Riwayat perubahan dan snapshot mingguan sebelumnya tetap tersimpan. Tindakan ini tidak bisa dibatalkan.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-light" type="button" data-bs-dismiss="modal">Batal</button>
+        <button class="btn btn-danger" type="submit">Ya, hapus</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
 
 <div class="row">
   <!-- Identitas -->
@@ -72,8 +107,10 @@
             <tr><td>Koordinat</td><td>{% if cctv.posisi %}{{ cctv.posisi.x|floatformat:6 }}, {{ cctv.posisi.y|floatformat:6 }}{% else %}-{% endif %}</td></tr>
           </tbody>
         </table>
-        {% if cctv.posisi %}
-        <div class="peta-kecil" id="peta-cctv" data-lng="{{ cctv.posisi.x|stringformat:'f' }}" data-lat="{{ cctv.posisi.y|stringformat:'f' }}"></div>
+        {% if cctv.posisi or coverage %}
+        <div class="peta-kecil" id="peta-cctv"{% if cctv.posisi %} data-lng="{{ cctv.posisi.x|stringformat:'f' }}" data-lat="{{ cctv.posisi.y|stringformat:'f' }}"{% endif %}></div>
+        {% if coverage %}<div class="f-12 text-muted mt-1">Area oranye = coverage{% if terbuka %} hasil digitasi terbaru (belum Approved){% endif %}.</div>{% endif %}
+        {{ coverage|json_script:"data-coverage" }}
         {% endif %}
       </div>
     </div>
@@ -141,6 +178,34 @@
   {% endif %}
 </div>
 
+{% if pengajuan.status == 'approved_warning' %}
+<!-- Warning Safety -->
+<div class="card">
+  <div class="card-header pb-0"><h5><i data-feather="alert-triangle" class="me-1 text-warning"></i>Warning Safety</h5></div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="warning-blok">
+          <div class="warning-judul">Checklist Safety yang tidak terpenuhi</div>
+          <ul class="warning-list">
+            {% for label in pengajuan.checklist_safety_kurang %}
+            <li><i data-feather="x-circle" class="text-danger"></i><span>{{ label }}</span></li>
+            {% empty %}<li class="text-muted">-</li>{% endfor %}
+          </ul>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="warning-blok">
+          <div class="warning-judul">Catatan Safety</div>
+          <p class="mb-0">{{ pengajuan.feedback_safety|linebreaksbr|default:"-" }}</p>
+        </div>
+      </div>
+    </div>
+    <p class="f-12 text-muted mt-3 mb-0">Approved with warning {{ pengajuan.minggu_label }}. Warning hilang setelah pengajuan berikutnya Approved.</p>
+  </div>
+</div>
+{% endif %}
+
 <!-- Riwayat -->
 <div class="card">
   <div class="card-header pb-0"><h5><i data-feather="clock" class="me-1"></i>Riwayat perubahan</h5></div>
@@ -157,7 +222,7 @@
         <span class="f-12 text-muted" title="{{ entry.date|date:'d M Y H:i:s' }}">{{ entry.date|date:"d M Y H:i" }}</span>
       </div>
       {% if entry.changes %}
-      <ul class="f-12 mb-0 mt-1 ps-3">
+      <ul class="list-unstyled f-12 mb-0 mt-1">
         {% for change in entry.changes %}
         <li><span class="text-muted">{{ change.field|capfirst }}:</span> {{ change.old }} → <strong>{{ change.new }}</strong></li>
         {% endfor %}
@@ -172,15 +237,26 @@
 {% endblock %}
 
 {% block scriptcontent %}
-{% if cctv.posisi %}
+{% if cctv.posisi or coverage %}
 <script type="module">
   import * as maplibregl from 'maplibre-gl';
   import { createMap } from 'besentry/peta';
+  import { addCoverage, PROPOSED_COLOR } from 'besentry/coverage-map';
+  import { addOrthophotoLayer, OrthophotoControl } from 'besentry/orthophoto-layer';
 
   const el = document.getElementById('peta-cctv');
-  const center = [Number(el.dataset.lng), Number(el.dataset.lat)];
-  const map = createMap(maplibregl, { container: el, center, zoom: 15 });
-  new maplibregl.Marker({ color: '#24695c' }).setLngLat(center).addTo(map);
+  const geometry = JSON.parse(document.getElementById('data-coverage').textContent);
+  const center = el.dataset.lng ? [Number(el.dataset.lng), Number(el.dataset.lat)] : null;
+  const ring = geometry ? (geometry.type === 'MultiPolygon' ? geometry.coordinates[0][0] : geometry.coordinates[0]) : [];
+  const map = createMap(maplibregl, { container: el, center: center || ring[0], zoom: 15 });
+  if (center) new maplibregl.Marker({ color: '#24695c' }).setLngLat(center).addTo(map);
+  map.once('style.load', () => {
+    // Under the coverage: it goes below the basemap labels, the coverage on top of everything.
+    addOrthophotoLayer(map, { apiUrl: "{% url 'orthophoto:current' %}" })
+      .then((ortho) => { if (ortho) map.addControl(new OrthophotoControl(ortho), 'top-right'); })
+      .catch(() => null);
+    if (geometry) addCoverage(maplibregl, map, { geometry, color: PROPOSED_COLOR });
+  });
 </script>
 {% endif %}
 {% if can_akses %}

@@ -1,0 +1,228 @@
+{% extends "layout/base.html" %}
+{% load pengguna %}
+
+{% block title %}Pengajuan {% if p %}{{ p.no_cctv }}{% else %}CCTV baru{% endif %}{% endblock %}
+{% block page_title %}Pengajuan perubahan CCTV{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item">CCTV Management</li>
+<li class="breadcrumb-item"><a href="{% url 'cctv:index' %}">CCTV Database</a></li>
+{% if p.cctv_id %}<li class="breadcrumb-item"><a href="{% url 'cctv:detail' p.cctv_id %}">{{ p.no_cctv }}</a></li>{% endif %}
+<li class="breadcrumb-item active">Pengajuan</li>
+{% endblock %}
+{% block page_actions %}
+{% if p %}
+<span class="badge badge-{{ p.badge }} f-14">{{ p.get_status_display }}</span>
+{% if p.minggu %}<span class="badge badge-light text-dark f-14">{{ p.minggu_label }}</span>{% endif %}
+<span class="badge verif-jenis verif-jenis-{{ p.jenis }}">{{ p.get_jenis_display }}</span>
+{% else %}
+<span class="badge badge-light text-dark f-14">CCTV baru · belum disimpan</span>
+{% endif %}
+{% endblock %}
+{% block css %}{% include "layout/maplibre.html" %}{% endblock %}
+
+{% block content %}
+{% include "partials/messages.html" %}
+
+<!-- Stepper -->
+<div class="card">
+  <div class="card-body py-3">
+    <ol class="pengajuan-stepper">
+      {% for key, label, done, current in tabs %}
+      <li class="{% if done %}selesai{% elif current %}aktif{% endif %}{% if key == tab %} dibuka{% endif %}">
+        {% if p %}<a href="?tab={{ key }}">{% else %}<span>{% endif %}
+          <span class="pengajuan-step-no">{% if done %}<i data-feather="check"></i>{% else %}{{ forloop.counter }}{% endif %}</span>
+          <span>{{ label }}</span>
+        {% if p %}</a>{% else %}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+</div>
+
+{% if tab == 'it' %}{% include "cctv/pengajuan/tab_it.html" %}
+{% elif tab == 'mitra' %}{% include "cctv/pengajuan/tab_mitra.html" %}
+{% elif tab == 'sgi' or tab == 'safety' %}{% include "cctv/pengajuan/tab_review.html" %}
+{% else %}{% include "cctv/pengajuan/tab_selesai.html" %}{% endif %}
+
+{% if p %}
+<div class="card verif-card">
+  <div class="card-body">
+    <h6>Riwayat pengajuan</h6>
+    <ul class="verif-timeline mb-0">
+      {% for r in riwayat %}
+      <li>
+        <span class="verif-time">{{ r.waktu|date:"d M H:i" }}</span>
+        <span>{{ r.user|nama_user:"Sistem" }}: {{ r.get_aksi_display|lower }}{% if r.catatan %} <span class="text-muted">({{ r.catatan }})</span>{% endif %}</span>
+      </li>
+      {% endfor %}
+      {% if p.terbuka %}<li class="verif-now"><span class="verif-time">Sekarang</span><span>{{ p.get_status_display }}</span></li>{% endif %}
+    </ul>
+  </div>
+</div>
+{{ peta|json_script:"data-peta" }}
+{% endif %}
+{% endblock %}
+
+{% block scriptcontent %}
+{% if p and tab != 'it' and tab in tab_terbuka %}
+<script type="module">
+  import * as maplibregl from 'maplibre-gl';
+  import { createMap } from 'besentry/peta';
+  import { addOrthophotoLayer } from 'besentry/orthophoto-layer';
+  import { addCoverage, fitExtent, PROPOSED_COLOR } from 'besentry/coverage-map';
+  import { PolygonDraw } from 'besentry/polygon-draw';
+
+  const data = JSON.parse(document.getElementById('data-peta').textContent);
+  const orthoApi = "{% url 'orthophoto:current' %}";
+  const firstRing = (g) => (g.type === 'MultiPolygon' ? g.coordinates[0][0] : g.coordinates[0]);
+
+  // One map: orthophoto underneath, then the boundary and camera. No data: the whole orthophoto.
+  function showMap(container, side, { color, dashedBefore = false } = {}) {
+    const map = createMap(maplibregl, { container });
+    fitExtent(map, side.extent || data.ortho_extent);
+    map.once('style.load', () => {
+      addOrthophotoLayer(map, { apiUrl: orthoApi }).catch(() => null);
+      if (dashedBefore) addCoverage(maplibregl, map, { geometry: data.sebelum.geom, dashed: true, id: 'sebelum' });
+      addCoverage(maplibregl, map, { geometry: side.geom, camera: side.kamera, color, id: `${container}-geom` });
+    });
+    return map;
+  }
+
+  {% if tab == 'mitra' %}
+  showMap('peta-sebelum', data.sebelum);
+
+  const form = document.getElementById('form-digitasi');
+  const input = form.geom_json;
+  const namaShp = form.nama_shp;
+  const status = document.getElementById('draw-status');
+  const hasil = document.getElementById('validasi-hasil');
+  const canDraw = {{ can.mitra|yesno:"true,false" }};
+  const cekUrl = "{% url 'cctv:pengajuan_mitra_cek' p.pk %}";
+  const map = createMap(maplibregl, { container: 'peta-digitasi' });
+  if (data.sesudah.kamera) map.jumpTo({ center: data.sesudah.kamera, zoom: 16 });
+  else fitExtent(map, data.sesudah.extent || data.ortho_extent);
+
+  function showResult(result) {
+    hasil.className = `f-12 alert py-2 mb-0 alert-${result.valid ? 'success' : 'danger'}`;
+    hasil.textContent = result.valid ? `Lolos validasi: ${result.pesan}.` : result.pesan;
+  }
+
+  // Ask the server: read an SHP into a polygon, or check the drawn one. Nothing is saved.
+  async function cek(body) {
+    body.append('csrfmiddlewaretoken', form.csrfmiddlewaretoken.value);
+    const response = await fetch(cekUrl, { method: 'POST', body });
+    const result = await response.json().catch(() => ({ error: `Gagal (${response.status}).` }));
+    if (!response.ok) throw new Error(result.error || `Gagal (${response.status}).`);
+    return result;
+  }
+
+  map.once('style.load', () => {
+    addOrthophotoLayer(map, { apiUrl: orthoApi }).catch(() => null);
+    addCoverage(maplibregl, map, { geometry: data.sebelum.geom, dashed: true, id: 'sebelum' });
+    addCoverage(maplibregl, map, { geometry: null, camera: data.sesudah.kamera, id: 'kamera' });
+    const saved = input.value ? JSON.parse(input.value) : null;
+    if (!canDraw) {
+      if (saved) addCoverage(maplibregl, map, { geometry: saved, color: PROPOSED_COLOR, id: 'usulan' });
+      return;
+    }
+
+    let timer = null;
+    let checked = 0;  // only the latest check may show its result
+    let edited = false;  // the saved polygon keeps its "Boundary tersimpan" line until it changes
+    const draw = new PolygonDraw(maplibregl, map, {
+      onChange: (polygon) => {
+        input.value = polygon ? JSON.stringify(polygon) : '';
+        const asal = namaShp.value ? ` dari ${namaShp.value}` : '';
+        if (edited) status.textContent = polygon ? `Polygon${asal}: ${polygon.coordinates[0].length - 1} titik, belum disimpan.` : 'Belum ada polygon.';
+        clearTimeout(timer);
+        if (!polygon) {
+          hasil.className = 'f-12 alert alert-light py-2 mb-0';
+          hasil.textContent = 'Belum ada polygon.';
+          return;
+        }
+        timer = setTimeout(async () => {
+          const id = ++checked;
+          const body = new FormData();
+          body.append('geom_json', input.value);
+          try {
+            const result = await cek(body);
+            if (id === checked) showResult(result);
+          } catch (error) {
+            if (id === checked) showResult({ valid: false, pesan: error.message });
+          }
+        }, 600);
+      },
+    });
+    if (saved) draw.load(firstRing(saved), { undoable: false });
+    edited = true;
+
+    const shpInput = document.getElementById('shp-input');
+    const shpError = document.getElementById('shp-error');
+    shpInput.addEventListener('change', async () => {
+      const file = shpInput.files[0];
+      shpInput.value = '';  // the same file can be picked again
+      if (!file) return;
+      shpError.textContent = '';
+      status.textContent = `Membaca ${file.name}...`;
+      const body = new FormData();
+      body.append('file_shp', file);
+      try {
+        const result = await cek(body);
+        namaShp.value = result.nama;
+        draw.load(result.geom.coordinates[0]);
+        fitExtent(map, draw.bounds());
+        if (result.catatan) shpError.textContent = result.catatan;
+      } catch (error) {
+        shpError.textContent = error.message;
+        draw.update();  // put the status line back
+      }
+    });
+    document.getElementById('draw-undo').addEventListener('click', () => draw.undo());
+    document.getElementById('draw-hapus').addEventListener('click', () => { namaShp.value = ''; draw.clear(); });
+    document.getElementById('draw-salin')?.addEventListener('click', () => {
+      namaShp.value = '';
+      draw.load(firstRing(data.sebelum.geom));
+    });
+  });
+  {% else %}
+  {% if tab != 'selesai' %}showMap('peta-sebelum', data.sebelum);{% endif %}
+  showMap('peta-sesudah', data.sesudah, { color: PROPOSED_COLOR{% if tab != 'selesai' %}, dashedBefore: true{% endif %} });
+  {% endif %}
+</script>
+{% endif %}
+{% if tab == 'sgi' or tab == 'safety' %}
+<script>
+  // Returning needs a note, and so does every Safety decision; say so before the round trip.
+  (() => {
+    const form = document.getElementById('form-review');
+    if (!form) return;
+    form.addEventListener('submit', (event) => {
+      const needsNote = event.submitter?.value !== 'safety';
+      if (needsNote && !form.catatan.value.trim()) {
+        event.preventDefault();
+        form.catatan.classList.add('is-invalid');
+        form.catatan.focus();
+      }
+    });
+  })();
+</script>
+{% endif %}
+{% if tab == 'it' %}
+<script>
+  // Reload the detail lokasi options for the chosen lokasi.
+  (() => {
+    const lokasi = document.getElementById('{{ form.lokasi.id_for_label }}');
+    const detail = document.getElementById('{{ form.detail_lokasi.id_for_label }}');
+    if (!lokasi || lokasi.disabled) return;
+    const url = "{% url 'cctv:detail_lokasi_options' %}";
+    lokasi.addEventListener('change', async () => {
+      detail.replaceChildren(new Option('---------', ''));
+      if (!lokasi.value) return;
+      const response = await fetch(`${url}?lokasi=${encodeURIComponent(lokasi.value)}`);
+      if (!response.ok) return;
+      (await response.json()).options.forEach((o) => detail.add(new Option(o.nama, o.id)));
+    });
+  })();
+</script>
+{% endif %}
+{% endblock %}

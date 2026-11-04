@@ -32,14 +32,14 @@
 
       <div class="card">
         <div class="card-header pb-0 d-flex justify-content-between align-items-center">
-          <h5>Cakupan akses CCTV</h5>
+          <h5>Coverage CCTV</h5>
           {% if not is_full_access %}
-          <button class="btn btn-outline-primary btn-sm" type="button" id="cakupan-tambah"><i data-feather="plus"></i>Tambah cakupan</button>
+          <button class="btn btn-outline-primary btn-sm" type="button" id="cakupan-tambah"><i data-feather="plus"></i>Tambah coverage</button>
           {% endif %}
         </div>
         <div class="card-body">
           {% if is_full_access %}
-          <p class="mb-0">Role ini melihat dan mengelola <strong>semua CCTV</strong>. Cakupan tidak diperlukan.</p>
+          <p class="mb-0">Role ini melihat dan mengelola <strong>semua CCTV</strong>. Coverage CCTV tidak diperlukan.</p>
           {% else %}
           <p class="f-12 text-muted">Satu baris = satu site + perusahaan yang boleh dilihat role ini. Pilih <em>Semua</em> untuk tidak membatasi.</p>
           {{ formset.management_form }}
@@ -54,7 +54,7 @@
               </tbody>
             </table>
           </div>
-          <p class="f-12 text-muted mt-2 mb-0{% if formset.forms %} d-none{% endif %}" id="cakupan-kosong">Belum ada cakupan: anggota role ini tidak bisa melihat CCTV.</p>
+          <p class="f-12 text-muted mt-2 mb-0{% if formset.forms %} d-none{% endif %}" id="cakupan-kosong">Belum ada Coverage CCTV: anggota role ini tidak bisa melihat CCTV.</p>
           <template id="cakupan-template">{% with f=formset.empty_form %}{% include "pengaturan/partials/cakupan_row.html" %}{% endwith %}</template>
           {% endif %}
         </div>

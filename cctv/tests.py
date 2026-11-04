@@ -1,10 +1,13 @@
 import io
+import shutil
+import tempfile
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
-from django.contrib.gis.geos import Point
+from django.contrib.gis.geos import MultiPolygon, Point, Polygon
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection, connections
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from openpyxl import Workbook, load_workbook
@@ -16,7 +19,32 @@ from navigation.menu import build_menu
 
 from . import importer
 from .access import get_scope
-from .models import CakupanCctv, Cctv, CctvAkses, CctvCoverage, CctvSpec
+from .models import CakupanCctv, Cctv, CctvAkses, CctvCoverage, CctvSpec, PengajuanCoverage
+
+PNG = b'\x89PNG\r\n\x1a\n' + b'0' * 64
+
+
+class MediaMixin:
+    """Uploads (CCTV screenshots) go to a temporary folder."""
+
+    def setUp(self):
+        super().setUp()
+        media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, media, ignore_errors=True)
+        override = override_settings(MEDIA_ROOT=media)
+        override.enable()
+        self.addCleanup(override.disable)
+
+    def submit(self, data, cctv=None, aksi='lanjutkan'):
+        """IT's tab of a change request: a new CCTV, or a request opened from the CCTV page."""
+        data = {**data, 'aksi': aksi, 'tangkapan_layar': SimpleUploadedFile('layar.png', PNG, content_type='image/png')}
+        if cctv is None:
+            return self.client.post(reverse('cctv:pengajuan_baru'), data)
+        opened = self.client.post(reverse('cctv:ajukan', args=[cctv.pk]))
+        if opened.status_code != 302:
+            return opened
+        pengajuan = PengajuanCoverage.objects.filter(cctv=cctv).latest('dibuat')
+        return self.client.post(reverse('cctv:pengajuan_it', args=[pengajuan.pk]), data)
 
 BC_HEADERS = [
     'MC-WORKSHOP-FAD-1', 'Perusahaan', 'Kategori', 'No. CCTV',
@@ -209,7 +237,7 @@ class LogDatabaseTests(TestCase):
         self.assertIsNone(cctv.history.get().history_user)
 
 
-class ViewTests(TestCase):
+class ViewTests(MediaMixin, TestCase):
     databases = {'default', 'log'}
 
     @classmethod
@@ -287,9 +315,11 @@ class ViewTests(TestCase):
 
     def test_create_saves_spec_and_history_with_user(self):
         self.client.force_login(self.admin)
-        response = self.client.post(reverse('cctv:create'), self.form_data())
+        response = self.submit(self.form_data())
         cctv = Cctv.objects.get(no_cctv='LMO-BC-0009')
-        self.assertRedirects(response, reverse('cctv:detail', args=[cctv.pk]))
+        pengajuan = PengajuanCoverage.objects.get(cctv=cctv)
+        self.assertRedirects(response, reverse('cctv:pengajuan', args=[pengajuan.pk]))
+        self.assertEqual((pengajuan.jenis, pengajuan.status), ('baru', 'menunggu_mitra'))
         self.assertEqual(cctv.posisi.coords, (117.6, 2.2))
         self.assertEqual(cctv.spec.brand, 'Hikvision')
         self.assertFalse(CctvAkses.objects.exists())  # admin has no akses form
@@ -299,20 +329,21 @@ class ViewTests(TestCase):
         # <input type=date> shows nothing for a locale-formatted value, and saving would clear it.
         cctv = self.make('LMO-BC-0001', periode_update='2025-08-01')
         self.client.force_login(self.admin)
-        self.assertContains(self.client.get(reverse('cctv:update', args=[cctv.pk])), 'value="2025-08-01"')
+        response = self.client.post(reverse('cctv:ajukan', args=[cctv.pk]), follow=True)
+        self.assertContains(response, 'value="2025-08-01"')
 
     def test_detail_lokasi_must_belong_to_lokasi(self):
         other = DetailLokasi.objects.create(lokasi=Lokasi.objects.create(nama='Lain'), nama='Lain')
         self.client.force_login(self.admin)
-        response = self.client.post(reverse('cctv:create'), self.form_data(detail_lokasi=other.pk))
+        response = self.submit(self.form_data(detail_lokasi=other.pk))
         self.assertEqual(response.status_code, 200)
         self.assertFalse(Cctv.objects.exists())
 
     def test_detail_shows_history_of_changes(self):
         self.client.force_login(self.admin)
-        cctv = self.make('LMO-BC-0001')
-        self.client.post(reverse('cctv:update', args=[cctv.pk]), self.form_data(no_cctv='LMO-BC-0001',
-                                                                                 kondisi='breakdown'))
+        cctv = self.make('LMO-BC-0001', posisi=Point(117.6, 2.2, srid=4326))
+        CctvSpec.objects.create(cctv=cctv, brand='Hikvision', radius_m=50)
+        self.submit(self.form_data(no_cctv='LMO-BC-0001', kondisi='breakdown'), cctv)
         response = self.client.get(reverse('cctv:detail', args=[cctv.pk]))
         riwayat = response.context['riwayat']
         self.assertEqual(riwayat[-1]['type'], 'Dibuat')
@@ -337,36 +368,41 @@ class ViewTests(TestCase):
         self.assertEqual(self.client.get(url).status_code, 405)
 
     def test_blank_password_keeps_the_stored_one(self):
-        cctv = self.make('LMO-BC-0001')
+        cctv = self.make('LMO-BC-0001', posisi=Point(117.6, 2.2, srid=4326))
+        CctvSpec.objects.create(cctv=cctv, brand='Hikvision', radius_m=50)
         CctvAkses.objects.create(cctv=cctv, password='lama')
         self.client.force_login(self.it)
 
-        self.client.post(reverse('cctv:update', args=[cctv.pk]),
-                         self.form_data(no_cctv='LMO-BC-0001', **{'akses-username': 'u'}))
+        self.submit(self.form_data(no_cctv='LMO-BC-0001', **{'akses-username': 'u'}), cctv)
         akses = CctvAkses.objects.get()
         self.assertEqual((akses.username, akses.password), ('u', 'lama'))
 
-        self.client.post(reverse('cctv:update', args=[cctv.pk]),
-                         self.form_data(no_cctv='LMO-BC-0001', **{'akses-password_baru': 'baru'}))
+        self.submit(self.form_data(no_cctv='LMO-BC-0001', **{'akses-password_baru': 'baru'}), cctv)
         self.assertEqual(CctvAkses.objects.get().password, 'baru')
 
-    def test_delete_is_blocked_by_coverage(self):
-        from django.contrib.gis.geos import MultiPolygon, Polygon
+    def test_delete_waits_for_the_open_request_and_takes_the_coverage(self):
         cctv = self.make('LMO-BC-0001')
         CctvSpec.objects.create(cctv=cctv, brand='Sony')
         self.client.force_login(self.admin)
+        pengajuan = PengajuanCoverage.objects.create(cctv=cctv, jenis='dipindah', status='menunggu_safety')
 
-        CctvCoverage.objects.create(
-            cctv=cctv, minggu='2026-10-26',
-            geom=MultiPolygon(Polygon(((0, 0), (0, 1), (1, 1), (0, 0)))),
-        )
         self.client.post(reverse('cctv:delete', args=[cctv.pk]))
         self.assertTrue(Cctv.objects.filter(pk=cctv.pk).exists())
 
-        CctvCoverage.objects.all().delete()
+        PengajuanCoverage.objects.filter(pk=pengajuan.pk).update(status='approved')
+        CctvCoverage.objects.create(
+            cctv=cctv, minggu='2026-10-26', geom=MultiPolygon(Polygon(((0, 0), (0, 1), (1, 1), (0, 0)))),
+        )
         self.assertRedirects(self.client.post(reverse('cctv:delete', args=[cctv.pk])), reverse('cctv:index'))
         self.assertFalse(CctvSpec.objects.exists())
+        self.assertFalse(CctvCoverage.objects.exists())
         self.assertEqual(Cctv.history.filter(id=cctv.pk).latest('history_date').history_type, '-')
+
+    def test_it_deletes_with_a_confirmation_modal(self):
+        cctv = self.make('LMO-BC-0001')
+        self.client.force_login(self.it)
+        self.assertContains(self.client.get(reverse('cctv:detail', args=[cctv.pk])), 'modal-hapus')
+        self.assertRedirects(self.client.post(reverse('cctv:delete', args=[cctv.pk])), reverse('cctv:index'))
 
     def test_detail_lokasi_options(self):
         self.client.force_login(self.admin)
@@ -374,7 +410,7 @@ class ViewTests(TestCase):
         self.assertEqual(response.json(), {'options': [{'id': self.detail.pk, 'nama': 'CR 01'}]})
 
 
-class AccessScopeTests(TestCase):
+class AccessScopeTests(MediaMixin, TestCase):
     """Role per site + perusahaan: e.g. BMO 2 + PT Pamapersada only sees its own CCTV."""
 
     databases = {'default', 'log'}
@@ -399,6 +435,7 @@ class AccessScopeTests(TestCase):
         cls.admin.groups.add(Group.objects.get(name=roles.ADMIN_HAZARD_MOTION))
 
     def setUp(self):
+        super().setUp()
         self.client.force_login(self.user)
 
     def allow_edit(self):
@@ -433,37 +470,37 @@ class AccessScopeTests(TestCase):
         self.assertEqual(self.client.get(reverse('cctv:detail', args=[self.own.pk])).status_code, 200)
         for cctv in (self.other_company, self.other_site):
             self.assertEqual(self.client.get(reverse('cctv:detail', args=[cctv.pk])).status_code, 404)
-            self.assertEqual(self.client.get(reverse('cctv:update', args=[cctv.pk])).status_code, 404)
+            self.assertEqual(self.client.post(reverse('cctv:ajukan', args=[cctv.pk])).status_code, 404)
 
     def test_view_only_role_cannot_change_anything(self):
         detail = self.client.get(reverse('cctv:detail', args=[self.own.pk]))
-        self.assertNotContains(detail, reverse('cctv:update', args=[self.own.pk]))
-        self.assertNotContains(self.client.get(reverse('cctv:index')), reverse('cctv:create'))
-        self.assertEqual(self.client.get(reverse('cctv:create')).status_code, 403)
-        self.assertEqual(self.client.post(reverse('cctv:update', args=[self.own.pk]), self.form_data()).status_code, 403)
+        self.assertNotContains(detail, reverse('cctv:ajukan', args=[self.own.pk]))
+        self.assertNotContains(self.client.get(reverse('cctv:index')), reverse('cctv:pengajuan_baru'))
+        self.assertEqual(self.client.get(reverse('cctv:pengajuan_baru')).status_code, 403)
+        self.assertEqual(self.client.post(reverse('cctv:ajukan', args=[self.own.pk])).status_code, 403)
         self.assertEqual(self.client.post(reverse('cctv:delete', args=[self.own.pk])).status_code, 403)
-        self.own.refresh_from_db()
-        self.assertEqual(self.own.kondisi, 'baik')
+        self.assertFalse(PengajuanCoverage.objects.exists())
 
     def test_edit_role_changes_own_cctv_but_cannot_move_it_out(self):
         self.allow_edit()
-        response = self.client.post(reverse('cctv:update', args=[self.own.pk]), self.form_data())
+        # Only kondisi changes: nothing to digitise, so it is approved at once.
+        response = self.submit(self.form_data(longitude='117.4', latitude='2.0'), self.own)
         self.assertRedirects(response, reverse('cctv:detail', args=[self.own.pk]))
         self.own.refresh_from_db()
         self.assertEqual(self.own.kondisi, 'breakdown')
+        self.assertEqual(PengajuanCoverage.objects.get().status, 'approved')
 
-        response = self.client.post(reverse('cctv:update', args=[self.own.pk]),
-                                    self.form_data(perusahaan=self.buma.pk))
+        response = self.submit(self.form_data(perusahaan=self.buma.pk, longitude='117.4', latitude='2.0'), self.own)
         self.assertEqual(response.status_code, 200)
         self.own.refresh_from_db()
         self.assertEqual(self.own.perusahaan, self.pama)
 
-        response = self.client.post(reverse('cctv:create'), self.form_data(no_cctv='BMO2-PM-0002'))
+        response = self.submit(self.form_data(no_cctv='BMO2-PM-0002'))
         self.assertEqual(response.status_code, 302)
-        response = self.client.post(reverse('cctv:create'), self.form_data(no_cctv='GMO-PM-0002', site=self.gmo.pk))
+        response = self.submit(self.form_data(no_cctv='GMO-PM-0002', site=self.gmo.pk))
         self.assertEqual(response.status_code, 200)
         self.assertFalse(Cctv.objects.filter(no_cctv='GMO-PM-0002').exists())
-        # Delete stays admin-only.
+        # Deleting is for IT roles and admins.
         self.assertEqual(self.client.post(reverse('cctv:delete', args=[self.own.pk])).status_code, 403)
 
     def test_site_only_scope_covers_every_company_there(self):
@@ -475,7 +512,7 @@ class AccessScopeTests(TestCase):
         self.client.force_login(self.admin)
         self.assertEqual(self.client.get(reverse('cctv:index')).context['stats']['total'], 3)
         self.assertEqual(self.client.get(reverse('cctv:detail', args=[self.other_site.pk])).status_code, 200)
-        self.assertTrue(get_scope(self.admin).can_delete)
+        self.assertTrue(get_scope(self.admin).can_delete(self.other_site))
 
     def test_password_endpoint_respects_scope(self):
         it_bmo2 = get_user_model().objects.create_user('it-bmo2', password='x')
