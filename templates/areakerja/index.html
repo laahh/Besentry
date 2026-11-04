@@ -37,14 +37,14 @@
   <div class="card-body">
     <form method="get" class="row g-2 align-items-end">
       <input type="hidden" name="minggu" value="{{ minggu|date:'Y-m-d' }}">
-      <div class="col-lg-2 col-md-3 col-6">
+      <div class="col-lg-3 col-md-4 col-6">
         <label class="form-label f-12 mb-1" for="f-site">Site</label>
         <select class="form-select form-select-sm" name="site" id="f-site">
           <option value="">Semua</option>
           {% for site in sites %}<option value="{{ site.pk }}"{% if site_dipilih == site.pk|stringformat:"d" %} selected{% endif %}>{{ site.kode }}</option>{% endfor %}
         </select>
       </div>
-      <div class="col-lg-4 col-md-5 col-6">
+      <div class="col-lg-3 col-md-4 col-6">
         <label class="form-label f-12 mb-1" for="f-perusahaan">Perusahaan</label>
         <select class="form-select form-select-sm" name="perusahaan" id="f-perusahaan">
           <option value="">Semua</option>
@@ -64,7 +64,7 @@
     <div class="table-responsive">
       <table class="table table-sm align-middle mb-0">
         <thead>
-          <tr><th>Site</th><th>Perusahaan</th><th>Pengajuan {{ minggu|date:"\WW o" }}</th><th>Area yang berlaku</th><th class="area-aksi"></th></tr>
+          <tr><th>Site</th><th>Perusahaan</th><th>Pengajuan {{ minggu|date:"\WW o" }}</th><th>Area yang berlaku</th><th>Coverage{% if minggu == minggu_ini %} (live){% endif %}</th><th class="area-aksi"></th></tr>
         </thead>
         <tbody>
           {% for row in rows %}
@@ -81,6 +81,15 @@
               {% if row.berlaku.catatan %}<span class="text-warning ms-1">{{ row.berlaku.catatan }}</span>{% endif %}
               {% else %}<span class="text-muted">{{ row.berlaku.catatan }}</span>{% endif %}
             </td>
+            <td class="f-12">
+              {% if row.snapshot.status == 'menunggu' %}<span class="text-warning">Menunggu area kerja Approved</span>
+              {% elif row.coverage and row.coverage.luas %}
+              <span class="f-w-600 text-success">{{ row.coverage.persen.tercover|floatformat:1 }}%</span> tercover
+              {% if row.coverage.persen.potensi %}<span class="text-muted">· {{ row.coverage.persen.potensi|floatformat:1 }}% potensi</span>{% endif %}
+              {# Below 1 ha two decimals hide the difference (0,07 of 0,07 ha at 95%): show three. #}
+              <div class="text-muted">{% if row.coverage.luas < 1 %}{{ row.coverage.tercover|floatformat:3 }} dari {{ row.coverage.luas|floatformat:3 }}{% else %}{{ row.coverage.tercover|floatformat:2 }} dari {{ row.coverage.luas|floatformat:2 }}{% endif %} ha</div>
+              {% else %}<span class="text-muted">-</span>{% endif %}
+            </td>
             <td class="area-aksi">
               {% if row.can_upload and not row.pengajuan %}
               <form method="post" action="{% url 'areakerja:buka' row.mitra_site.pk %}">{% csrf_token %}
@@ -90,7 +99,7 @@
             </td>
           </tr>
           {% empty %}
-          <tr><td colspan="5" class="text-muted">Tidak ada Mitra Site aktif dalam akses Anda.</td></tr>
+          <tr><td colspan="6" class="text-muted">Tidak ada Mitra Site aktif dalam akses Anda.</td></tr>
           {% endfor %}
         </tbody>
       </table>

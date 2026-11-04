@@ -479,3 +479,64 @@
   height: 14px;
   margin-top: 0;
 }
+
+/* Small map legend (MapLibre control, see area-kerja-layer.js). */
+.peta-legend {
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1);
+  color: #1a1a1a;
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.peta-legend strong {
+  display: block;
+  margin-top: 3px;
+  color: #5f6b63;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.peta-legend div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.peta-legend span {
+  flex: none;
+  width: 14px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.peta-legend-area {
+  border: 1px solid var(--warna);
+  background: color-mix(in srgb, var(--warna) 25%, transparent);
+}
+
+.peta-legend-fill {
+  border: 1.5px solid var(--warna);
+  background: color-mix(in srgb, var(--warna) 35%, transparent);
+}
+
+.peta-legend-line {
+  height: 0 !important;
+  border-top: 2px solid var(--warna);
+}
+
+.peta-legend-dashed {
+  height: 0 !important;
+  border-top: 2px dashed var(--warna);
+}
+
+.peta-legend-dot {
+  width: 10px !important;
+  border-radius: 50% !important;
+  border: 1.5px solid #fff;
+  background: var(--warna);
+  box-shadow: 0 0 0 1px var(--warna);
+}

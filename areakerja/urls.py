@@ -6,6 +6,7 @@ app_name = 'areakerja'
 
 urlpatterns = [
     path('area-kerja/', views.index, name='index'),
+    path('area-kerja/berlaku.geojson', views.peta_berlaku, name='peta_berlaku'),
     path('area-kerja/mitra/<int:mitra_pk>/buka/', views.buka, name='buka'),
     path('area-kerja/pengajuan/<int:pk>/', views.page, name='pengajuan'),
     path('area-kerja/pengajuan/<int:pk>/slot/', views.slot, name='slot'),

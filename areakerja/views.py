@@ -7,6 +7,8 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.db.models import Prefetch
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
@@ -15,9 +17,11 @@ from cctv.access import get_scope
 from cctv.coverage import GeometryError, ReviewError, this_monday
 from orthophoto.models import Orthophoto
 
-from . import access, services
+from . import access, kalkulasi, services
 from .forms import AjukanForm, SlotForm, VerifikasiForm
-from .models import AreaKerja, JenisArea, PengajuanAreaKerja
+from .models import (
+    AreaKerja, CoverageLive, JenisArea, MitraSite, PengajuanAreaKerja, SnapshotCoverage, SnapshotCoverageJenis,
+)
 
 Status = PengajuanAreaKerja.Status
 WARNA = {'pit': '9C6B3C', 'hauling': 'D9822B', 'infra_tambang': '2F9E5B', 'infra_non_tambang': '4C7DBF'}
@@ -66,6 +70,16 @@ def index(request):
     pengajuan = {
         p.mitra_site_id: p for p in PengajuanAreaKerja.objects.filter(minggu=minggu, mitra_site__in=sites)
     }
+    # Coverage (official mode): live for the running week, the locked snapshot for a closed one.
+    hasil, snapshot = {}, {}
+    if minggu == this_monday():
+        for row in CoverageLive.objects.filter(mitra_site__in=sites).defer('geom_tercover', 'geom_potensi', 'geom_tidak'):
+            hasil.setdefault(row.mitra_site_id, []).append(row)
+    else:
+        for snap in SnapshotCoverage.objects.filter(minggu=minggu, mitra_site__in=sites).prefetch_related(
+                Prefetch('hasil', SnapshotCoverageJenis.objects.defer('geom_tercover', 'geom_potensi', 'geom_tidak'))):
+            snapshot[snap.mitra_site_id] = snap
+            hasil[snap.mitra_site_id] = list(snap.hasil.all())
     rows = []
     for mitra_site in sites:
         berlaku = services.area_berlaku(mitra_site, minggu)
@@ -74,6 +88,8 @@ def index(request):
             'pengajuan': pengajuan.get(mitra_site.pk),
             'berlaku': berlaku,
             'can_upload': access.can_upload(scope, mitra_site) and minggu == this_monday(),
+            'coverage': kalkulasi.ringkasan(hasil[mitra_site.pk]) if hasil.get(mitra_site.pk) else None,
+            'snapshot': snapshot.get(mitra_site.pk),
         })
     counts = {
         'total': len(rows),
@@ -224,3 +240,31 @@ def verifikasi(request, pk):
         return redirect(_url(pengajuan, 'sgi'))
     messages.success(request, f'Area kerja {pengajuan}: {pengajuan.get_status_display()}.')
     return redirect(_url(pengajuan))
+
+
+@login_required
+def peta_berlaku(request):
+    """GeoJSON of the work areas in force this week, every active Mitra Site together, for the CCTV maps.
+    One feature per Mitra Site and kind; properties say which, and whether it is last week's (fallback)."""
+    _scope(request.user)
+    minggu = this_monday()
+    features = []
+    for mitra_site in MitraSite.objects.aktif().select_related('site', 'perusahaan'):
+        berlaku = services.area_berlaku(mitra_site, minggu)
+        if not berlaku['pengajuan']:
+            continue
+        for area in berlaku['pengajuan'].area.all():
+            if area.geom is None:
+                continue
+            features.append({
+                'type': 'Feature',
+                'geometry': json.loads(area.geom.geojson),
+                'properties': {
+                    'jenis': area.jenis, 'jenis_label': area.get_jenis_display(),
+                    'site': mitra_site.site.kode, 'perusahaan': mitra_site.perusahaan.nama,
+                    'minggu': berlaku['pengajuan'].minggu_label, 'fallback': berlaku['fallback'],
+                },
+            })
+    response = JsonResponse({'type': 'FeatureCollection', 'features': features})
+    response['Cache-Control'] = 'private, max-age=300'
+    return response

@@ -173,3 +173,108 @@ class RiwayatAreaKerja(models.Model):
         ordering = ['waktu', 'pk']
         verbose_name = 'riwayat area kerja'
         verbose_name_plural = 'riwayat area kerja'
+
+
+# --- Coverage ----------------------------------------------------------------------------------
+
+class ModeKalkulasi(models.TextChoices):
+    MILIK = 'milik', 'CCTV milik kontraktor'  # the official number
+    SEMUA = 'semua', 'Semua CCTV'              # every CCTV whose boundary falls on the area
+
+
+class HasilCoverage(models.Model):
+    """One kind of work area against one set of CCTV: covered, potential (dead cameras) and not covered.
+    The three add up to the area."""
+
+    mode = models.CharField(max_length=10, choices=ModeKalkulasi.choices)
+    jenis = models.CharField(max_length=20, choices=JenisArea.choices)
+    luas_ha = models.FloatField(default=0)
+    tercover_ha = models.FloatField(default=0)
+    potensi_ha = models.FloatField(default=0)
+    tidak_ha = models.FloatField(default=0)
+    geom_tercover = models.MultiPolygonField(srid=4326, null=True, blank=True)
+    geom_potensi = models.MultiPolygonField(srid=4326, null=True, blank=True)
+    geom_tidak = models.MultiPolygonField(srid=4326, null=True, blank=True)
+    jumlah_cctv = models.PositiveIntegerField(default=0, help_text='CCTV aktif + mati yang dipakai.')
+
+    class Meta:
+        abstract = True
+
+    def _persen(self, value):
+        return round(100 * value / self.luas_ha, 1) if self.luas_ha else None
+
+    @property
+    def persen_tercover(self):
+        return self._persen(self.tercover_ha)
+
+    @property
+    def persen_potensi(self):
+        return self._persen(self.potensi_ha)
+
+    @property
+    def persen_tidak(self):
+        return self._persen(self.tidak_ha)
+
+
+class CoverageLive(HasilCoverage):
+    """The running week: recomputed whenever a CCTV, a boundary or a work area changes."""
+
+    mitra_site = models.ForeignKey(MitraSite, on_delete=models.CASCADE, related_name='coverage_live')
+    minggu = models.DateField()
+    minggu_area = models.DateField(null=True, blank=True)
+    fallback = models.BooleanField(default=False)
+    catatan = models.CharField(max_length=200, blank=True)
+    dihitung_pada = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'coverage live'
+        verbose_name_plural = 'coverage live'
+        constraints = [models.UniqueConstraint(fields=['mitra_site', 'mode', 'jenis'], name='coverage_live_unik')]
+
+
+class SnapshotCoverage(models.Model):
+    """A closed week for one Mitra Site: its work area against the CCTV as they stood at Monday 00:00.
+
+    Locked once written. While the week's own request is still on its way (Approved late), it waits:
+    it is computed when the request is Approved, or with the fallback area once `batas_tunggu` passes.
+    Site and company are copied so a retired Mitra Site keeps its weeks.
+    """
+
+    class Status(models.TextChoices):
+        MENUNGGU = 'menunggu', 'Menunggu area kerja'
+        TERKUNCI = 'terkunci', 'Terkunci'
+
+    minggu = models.DateField(db_index=True)
+    mitra_site = models.ForeignKey(MitraSite, null=True, on_delete=models.SET_NULL, related_name='snapshot_coverage')
+    site_kode = models.CharField(max_length=20)
+    perusahaan_nama = models.CharField(max_length=150)
+    status = models.CharField(max_length=10, choices=Status.choices)
+    pengajuan = models.ForeignKey(
+        PengajuanAreaKerja, null=True, blank=True, on_delete=models.SET_NULL, related_name='snapshot_coverage',
+    )
+    minggu_area = models.DateField(null=True, blank=True, help_text='Week area kerja yang dipakai.')
+    fallback = models.BooleanField(default=False)
+    catatan = models.CharField(max_length=200, blank=True)
+    # {jenis: {"sumber": ..., "minggu_asal": ...}}: how each kind was filled in the request used.
+    pilihan_slot = models.JSONField(default=dict, blank=True)
+    batas_tunggu = models.DateField(null=True, blank=True)
+    dibuat = models.DateTimeField(auto_now_add=True)
+    terkunci_pada = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-minggu', 'site_kode', 'perusahaan_nama']
+        verbose_name = 'snapshot coverage'
+        verbose_name_plural = 'snapshot coverage'
+        constraints = [models.UniqueConstraint(fields=['minggu', 'mitra_site'], name='snapshot_coverage_unik')]
+
+    def __str__(self):
+        return f'{self.site_kode} - {self.perusahaan_nama} {minggu_label(self.minggu)}'
+
+
+class SnapshotCoverageJenis(HasilCoverage):
+    snapshot = models.ForeignKey(SnapshotCoverage, on_delete=models.CASCADE, related_name='hasil')
+
+    class Meta:
+        verbose_name = 'hasil snapshot coverage'
+        verbose_name_plural = 'hasil snapshot coverage'
+        constraints = [models.UniqueConstraint(fields=['snapshot', 'mode', 'jenis'], name='snapshot_coverage_jenis_unik')]

@@ -70,21 +70,30 @@
   import * as maplibregl from 'maplibre-gl';
   import { createMap } from 'besentry/peta';
   import { addOrthophotoLayer } from 'besentry/orthophoto-layer';
-  import { addCoverage, fitExtent, PROPOSED_COLOR } from 'besentry/coverage-map';
+  import { ACTIVE_COLOR, addCoverage, fitExtent, PROPOSED_COLOR } from 'besentry/coverage-map';
   import { PolygonDraw } from 'besentry/polygon-draw';
+  import { addAreaKerjaLayer, AREA_LEGEND, MapLegend } from 'besentry/area-kerja-layer';
 
   const data = JSON.parse(document.getElementById('data-peta').textContent);
   const orthoApi = "{% url 'orthophoto:current' %}";
   const firstRing = (g) => (g.type === 'MultiPolygon' ? g.coordinates[0][0] : g.coordinates[0]);
+  const areaUrl = "{% url 'areakerja:peta_berlaku' %}";
+  const KAMERA = { label: 'Posisi kamera', color: '#2c323f', type: 'dot' };
+  const SEBELUMNYA = { label: 'Coverage sebelumnya', color: ACTIVE_COLOR, type: 'dashed' };
 
-  // One map: orthophoto underneath, then the boundary and camera. No data: the whole orthophoto.
-  function showMap(container, side, { color, dashedBefore = false } = {}) {
+  // One map: orthophoto underneath, this week's work areas, then the boundary and camera.
+  // No data: the whole orthophoto.
+  function showMap(container, side, { color = ACTIVE_COLOR, label = 'Coverage berlaku', dashedBefore = false } = {}) {
     const map = createMap(maplibregl, { container });
     fitExtent(map, side.extent || data.ortho_extent);
     map.once('style.load', () => {
       addOrthophotoLayer(map, { apiUrl: orthoApi }).catch(() => null);
+      addAreaKerjaLayer(map, { url: areaUrl });
       if (dashedBefore) addCoverage(maplibregl, map, { geometry: data.sebelum.geom, dashed: true, id: 'sebelum' });
       addCoverage(maplibregl, map, { geometry: side.geom, camera: side.kamera, color, id: `${container}-geom` });
+      map.addControl(new MapLegend([
+        { label, color }, ...(dashedBefore ? [SEBELUMNYA] : []), KAMERA, ...AREA_LEGEND,
+      ]), 'top-right');
     });
     return map;
   }
@@ -119,8 +128,12 @@
 
   map.once('style.load', () => {
     addOrthophotoLayer(map, { apiUrl: orthoApi }).catch(() => null);
+    addAreaKerjaLayer(map, { url: areaUrl });
     addCoverage(maplibregl, map, { geometry: data.sebelum.geom, dashed: true, id: 'sebelum' });
     addCoverage(maplibregl, map, { geometry: null, camera: data.sesudah.kamera, id: 'kamera' });
+    map.addControl(new MapLegend([
+      { label: 'Boundary digitasi', color: PROPOSED_COLOR }, SEBELUMNYA, KAMERA, ...AREA_LEGEND,
+    ]), 'top-right');
     const saved = input.value ? JSON.parse(input.value) : null;
     if (!canDraw) {
       if (saved) addCoverage(maplibregl, map, { geometry: saved, color: PROPOSED_COLOR, id: 'usulan' });
@@ -187,7 +200,7 @@
   });
   {% else %}
   {% if tab != 'selesai' %}showMap('peta-sebelum', data.sebelum);{% endif %}
-  showMap('peta-sesudah', data.sesudah, { color: PROPOSED_COLOR{% if tab != 'selesai' %}, dashedBefore: true{% endif %} });
+  showMap('peta-sesudah', data.sesudah, { color: PROPOSED_COLOR{% if tab != 'selesai' %}, label: 'Boundary usulan', dashedBefore: true{% endif %} });
   {% endif %}
 </script>
 {% endif %}

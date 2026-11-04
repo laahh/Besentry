@@ -140,6 +140,13 @@ RQ_QUEUES = {
         'DEFAULT_TIMEOUT': 120,
         'ASYNC': env.bool('NOTIFIKASI_ASYNC', default=False),
     },
+    # Live CCTV coverage of the work areas, recomputed after each change. ASYNC=False computes it
+    # right after saving; in production set COVERAGE_ASYNC=True (the notifier service runs this queue).
+    'coverage': {
+        'URL': env('REDIS_URL'),
+        'DEFAULT_TIMEOUT': 15 * 60,
+        'ASYNC': env.bool('COVERAGE_ASYNC', default=False),
+    },
 }
 
 

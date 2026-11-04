@@ -1,21 +1,26 @@
 import datetime
+from contextlib import contextmanager
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
-from django.db import IntegrityError
+from django.contrib.gis.geos import MultiPolygon, Point
+from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from cctv.coverage import GeometryError, ReviewError
-from cctv.models import CakupanCctv
+from cctv.models import CakupanCctv, Cctv, CctvCoverage
+from cctv.snapshot import close_week
 from cctv.tests_pengajuan import CAMERA, shp_zip, square
 from core.models import Perusahaan, Site
 from navigation import roles
 
-from . import services
-from .models import AreaKerja, JenisArea, MitraSite, PengajuanAreaKerja, RiwayatAreaKerja
+from . import kalkulasi, services
+from .models import (
+    AreaKerja, CoverageLive, JenisArea, MitraSite, PengajuanAreaKerja, RiwayatAreaKerja, SnapshotCoverage,
+)
 
 W45 = datetime.date(2026, 11, 2)
 W46 = W45 + datetime.timedelta(days=7)
@@ -181,6 +186,21 @@ class AreaKerjaTests(TestCase):
         self.client.force_login(self.survey_bc)
         self.assertEqual(len(self.client.get(reverse('areakerja:index')).context['rows']), 3)  # Survey BC sees all
 
+    def test_areas_in_force_for_the_cctv_maps(self):
+        pengajuan = self.fill(services.request_for(self.mitra_site, self.mitra), self.mitra, pit=[square(*CAMERA)])
+        services.ajukan(pengajuan, self.mitra)
+        url = reverse('areakerja:peta_berlaku')
+        self.assertEqual(self.client.get(url).status_code, 302)  # login first
+        self.client.force_login(self.mitra)
+        self.assertEqual(self.client.get(url).json()['features'], [])  # not Approved yet: nothing in force
+        services.verifikasi(pengajuan, self.survey_bc, aksi='approve')
+        features = self.client.get(url).json()['features']
+        self.assertEqual([f['properties']['jenis'] for f in features], ['pit'])  # 'tidak ada' kinds have no shape
+        self.assertEqual((features[0]['properties']['site'], features[0]['properties']['fallback']), ('LMO', False))
+        self.mitra_site.aktif = False
+        self.mitra_site.save()
+        self.assertEqual(self.client.get(url).json()['features'], [])  # stopped sites drop off the maps
+
     def test_list_filters_keep_across_weeks(self):
         self.client.force_login(self.survey_bc)
         page = self.client.get(reverse('areakerja:index'), {'perusahaan': self.bc.pk, 'minggu': '2026-11-12'})
@@ -190,3 +210,142 @@ class AreaKerjaTests(TestCase):
                                                        'filter': f'perusahaan={self.bc.pk}'})
         self.assertContains(page, f'?minggu=2026-11-02&perusahaan={self.bc.pk}')  # previous week, same filter
         self.assertEqual(len(page.context['perusahaan_list']), 2)
+
+
+class CoverageTests(TestCase):
+    """CCTV boundaries over work areas: tercover / potensi / tidak tercover, live and per closed week."""
+
+    databases = {'default', 'log'}
+    X, Y = CAMERA
+
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+        cls.site = Site.objects.create(kode='LMO')
+        cls.pama = Perusahaan.objects.create(nama='PT Pamapersada Nusantara', kode='PM')
+        cls.lain = Perusahaan.objects.create(nama='PT Kontraktor Lain', kode='KL')
+        cls.mitra_site = MitraSite.objects.create(site=cls.site, perusahaan=cls.pama)
+        cls.user = User.objects.create_user('survey-bc', password='x')
+
+    def setUp(self):
+        # setUpTestData's saves left a recompute waiting on a commit that never comes in tests.
+        transaction.get_connection().run_on_commit.clear()
+        for target in ('areakerja.services.this_monday', 'areakerja.views.this_monday', 'areakerja.kalkulasi.this_monday'):
+            patcher = mock.patch(target, return_value=W45)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    @contextmanager
+    def committed(self):
+        """Run what waits for the commit (live recompute, locking a waiting week): TestCase never commits.
+        Then drop those callbacks, as a real commit would, so the next change schedules its own."""
+        pending = transaction.get_connection().run_on_commit
+        start = len(pending)
+        with self.captureOnCommitCallbacks(execute=True):
+            yield
+        del pending[start:]
+
+    def cctv(self, no, boundary, perusahaan=None, **fields):
+        with self.committed():
+            cctv = Cctv.objects.create(no_cctv=no, nama=no, site=self.site, perusahaan=perusahaan or self.pama,
+                                       jenis='fixed', posisi=Point(self.X, self.Y, srid=4326), **fields)
+            CctvCoverage.objects.create(cctv=cctv, minggu=W45, geom=MultiPolygon(boundary, srid=4326))
+        return cctv
+
+    def area(self, minggu=W45, pit=None, approve=True):
+        with mock.patch('areakerja.services.this_monday', return_value=minggu), self.committed():
+            pengajuan = services.request_for(self.mitra_site, self.user)
+            services.save_slot(pengajuan, self.user, 'pit', 'upload', shp_zip([pit or square(self.X, self.Y, 0.004)]))
+            for jenis in JENIS[1:]:
+                services.save_slot(pengajuan, self.user, jenis, 'tidak_ada')
+            services.ajukan(pengajuan, self.user)
+            if approve:
+                services.verifikasi(pengajuan, self.user, aksi='approve')
+        return pengajuan
+
+    def tutup(self):
+        """Monday 00:00 of W46: close W45."""
+        with mock.patch('areakerja.kalkulasi.this_monday', return_value=W46):
+            return kalkulasi.tutup_minggu(W45)
+
+    def live(self, mode='milik', jenis='pit'):
+        return CoverageLive.objects.get(mitra_site=self.mitra_site, mode=mode, jenis=jenis)
+
+    def test_how_a_camera_counts(self):
+        cases = {('live', 'baik'): 'aktif', ('post_event', 'baik'): 'aktif', ('offline', 'baik'): 'mati',
+                 ('live', 'breakdown'): 'mati', ('live', 'repair'): 'mati', ('live', 'dismantle'): None,
+                 ('offline', 'take_out'): None}
+        for (status, kondisi), expected in cases.items():
+            with self.subTest(status=status, kondisi=kondisi):
+                self.assertEqual(kalkulasi.kelompok(status, kondisi), expected)
+
+    def test_live_coverage_in_two_modes(self):
+        self.area()  # pit: a 0.004 deg square (~19.7 ha)
+        s = 0.002
+        self.cctv('A', square(self.X, self.Y, s))                                  # active, bottom-left quarter
+        self.cctv('B', square(self.X + 0.001, self.Y, s))                          # active, overlaps A: counted once
+        self.cctv('C', square(self.X, self.Y + s, s), status='offline')            # dead, top-left -> potential
+        self.cctv('D', square(self.X + s, self.Y + s, s), perusahaan=self.lain)    # someone else's, top-right
+        self.cctv('E', square(self.X + s, self.Y, s), kondisi='dismantle')         # removed: not counted
+
+        milik, semua = self.live('milik'), self.live('semua')
+        self.assertAlmostEqual(milik.tercover_ha + milik.potensi_ha + milik.tidak_ha, milik.luas_ha, delta=0.01)
+        self.assertAlmostEqual(milik.persen_tercover, 37.5, delta=0.5)  # A u B = 3/8 of the square
+        self.assertAlmostEqual(milik.persen_potensi, 25.0, delta=0.5)
+        self.assertEqual(milik.jumlah_cctv, 3)
+        self.assertAlmostEqual(semua.persen_tercover, 62.5, delta=0.5)  # plus the other company's camera
+        self.assertEqual(self.live('milik', 'hauling').luas_ha, 0)      # 'tidak ada' kinds still get a row
+
+        Cctv.objects.filter(no_cctv='C').update(status='live')  # .update() sends no signal
+        with self.committed():
+            Cctv.objects.get(no_cctv='C').save()                 # a save does: recomputed
+        self.assertAlmostEqual(self.live('milik').persen_tercover, 62.5, delta=0.5)
+
+    def test_totals_never_pass_100_percent(self):
+        # A small area: 0.0653 of 0.0686 ha. Rounding the hectares first gave 0.07 / 0.0686 = 102%.
+        row = CoverageLive(mode='milik', jenis='pit', luas_ha=0.0686, tercover_ha=0.0653, potensi_ha=0.0, tidak_ha=0.0033)
+        total = kalkulasi.ringkasan([row])
+        self.assertEqual(total['persen']['tercover'], 95.2)
+        self.assertEqual((total['luas'], total['tercover']), (0.0686, 0.0653))
+
+    def test_closed_week_is_locked(self):
+        self.area()
+        self.cctv('A', square(self.X, self.Y, 0.002))
+        close_week(W45)
+        self.assertEqual(self.tutup(), (1, 0))
+        snap = SnapshotCoverage.objects.get(minggu=W45, mitra_site=self.mitra_site)
+        pit = snap.hasil.get(mode='milik', jenis='pit')
+        self.assertEqual((snap.status, snap.fallback, snap.pilihan_slot['pit']['sumber']), ('terkunci', False, 'upload'))
+        self.assertAlmostEqual(pit.persen_tercover, 25.0, delta=0.5)
+        self.cctv('B', square(self.X + 0.002, self.Y, 0.002))  # later changes do not touch a locked week
+        self.assertEqual(self.tutup(), (0, 0))
+        self.assertAlmostEqual(snap.hasil.get(mode='milik', jenis='pit').persen_tercover, 25.0, delta=0.5)
+
+    def test_week_waits_for_a_late_approval(self):
+        w44 = W45 - datetime.timedelta(days=7)
+        self.area(minggu=w44)                                                     # last week's area
+        pengajuan = self.area(pit=square(self.X, self.Y, 0.002), approve=False)  # this week's, not yet checked
+        self.cctv('A', square(self.X, self.Y, 0.002))
+        close_week(W45)
+        self.assertEqual(self.tutup(), (0, 1))
+        snap = SnapshotCoverage.objects.get(minggu=W45, mitra_site=self.mitra_site)
+        self.assertEqual((snap.status, snap.hasil.count()), ('menunggu', 0))
+
+        late = timezone.make_aware(datetime.datetime(2026, 11, 11, 9, 0))
+        with mock.patch('areakerja.services.timezone.now', return_value=late), self.committed():
+            services.verifikasi(pengajuan, self.user, aksi='approve')  # locks it right away
+        snap.refresh_from_db()
+        self.assertEqual((snap.status, snap.minggu_area, snap.catatan), ('terkunci', W45, 'Approved terlambat'))
+        self.assertAlmostEqual(snap.hasil.get(mode='milik', jenis='pit').persen_tercover, 100.0, delta=0.5)
+
+    def test_wait_ends_with_the_fallback(self):
+        w44 = W45 - datetime.timedelta(days=7)
+        self.area(minggu=w44)
+        self.area(approve=False)
+        close_week(W45)
+        self.tutup()
+        self.assertEqual(kalkulasi.selesaikan_menunggu(today=W45 + datetime.timedelta(days=13)), 0)  # still waiting
+        self.assertEqual(kalkulasi.selesaikan_menunggu(today=W45 + datetime.timedelta(days=14)), 1)
+        snap = SnapshotCoverage.objects.get(minggu=W45, mitra_site=self.mitra_site)
+        self.assertEqual((snap.status, snap.fallback, snap.minggu_area), ('terkunci', True, w44))
+        self.assertIn('Fallback', snap.catatan)
