@@ -177,6 +177,17 @@ class TasklistTests(TestCase):
         self.assertEqual(steps[3]['pics'], ['admin'])
         self.assertEqual(steps[3]['tugas'], 'Review dan beri keputusan Safety')
 
+    def test_berau_coal_progress_has_no_survey_mitra_stage(self):
+        berau_coal = Perusahaan.objects.create(nama='PT Berau Coal BC', kode=Perusahaan.KODE_BERAU_COAL)
+        cctv = Cctv.objects.create(no_cctv='LMO-BC-1', nama='Kamera', site=self.lmo, perusahaan=berau_coal)
+        PengajuanCoverage.objects.create(cctv=cctv, jenis='dipindah', status='menunggu_sgi')
+        page = self.open_page(self.user('admin', roles.ADMIN_HAZARD_MOTION))
+        steps = page.context['steps']
+        self.assertEqual([s['label'] for s in steps],
+                         ['Input IT', 'Digitasi + Verifikasi Survey BC', 'Review Safety BC', 'Sah & berlaku'])
+        self.assertEqual(steps[1]['tugas'], 'Digitasi dan verifikasi boundary coverage')
+        self.assertEqual(page.context['rows'][0]['tugas'], 'Digitasi dan verifikasi boundary coverage')
+
     def test_returned_stage_shows_the_note(self):
         admin = self.user('admin', roles.ADMIN_HAZARD_MOTION)
         pengajuan = self.request('return_mitra')

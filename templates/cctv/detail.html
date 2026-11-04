@@ -243,6 +243,7 @@
   import { createMap } from 'besentry/peta';
   import { addCoverage, PROPOSED_COLOR } from 'besentry/coverage-map';
   import { addOrthophotoLayer, OrthophotoControl } from 'besentry/orthophoto-layer';
+  import { addAreaKerjaLayer, AREA_LEGEND, MapLegend } from 'besentry/area-kerja-layer';
 
   const el = document.getElementById('peta-cctv');
   const geometry = JSON.parse(document.getElementById('data-coverage').textContent);
@@ -255,7 +256,11 @@
     addOrthophotoLayer(map, { apiUrl: "{% url 'orthophoto:current' %}" })
       .then((ortho) => { if (ortho) map.addControl(new OrthophotoControl(ortho), 'top-right'); })
       .catch(() => null);
+    addAreaKerjaLayer(map, { url: "{% url 'areakerja:peta_berlaku' %}" });  // this week's work areas, under the coverage
     if (geometry) addCoverage(maplibregl, map, { geometry, color: PROPOSED_COLOR });
+    map.addControl(new MapLegend([
+      { label: 'Coverage CCTV', color: PROPOSED_COLOR }, { label: 'Posisi kamera', color: '#24695c', type: 'dot' }, ...AREA_LEGEND,
+    ]), 'top-right');
   });
 </script>
 {% endif %}

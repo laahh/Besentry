@@ -319,7 +319,7 @@ class ViewTests(MediaMixin, TestCase):
         cctv = Cctv.objects.get(no_cctv='LMO-BC-0009')
         pengajuan = PengajuanCoverage.objects.get(cctv=cctv)
         self.assertRedirects(response, reverse('cctv:pengajuan', args=[pengajuan.pk]))
-        self.assertEqual((pengajuan.jenis, pengajuan.status), ('baru', 'menunggu_mitra'))
+        self.assertEqual((pengajuan.jenis, pengajuan.status), ('baru', 'menunggu_sgi'))  # PT Berau Coal: no Survey Mitra
         self.assertEqual(cctv.posisi.coords, (117.6, 2.2))
         self.assertEqual(cctv.spec.brand, 'Hikvision')
         self.assertFalse(CctvAkses.objects.exists())  # admin has no akses form

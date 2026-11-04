@@ -98,6 +98,16 @@ class DigitasiForm(forms.Form):
     aksi = forms.ChoiceField(choices=(('draft', 'Simpan draft'), ('kirim', 'Ajukan ke Survey BC')))
 
 
+class DigitasiSgiForm(forms.Form):
+    """PT Berau Coal: Survey BC's boundary and checklist in one form."""
+    geom_json = forms.CharField(required=False, widget=forms.HiddenInput)
+    nama_shp = forms.CharField(required=False, max_length=255, widget=forms.HiddenInput)
+    checklist = forms.MultipleChoiceField(choices=PengajuanCoverage.CHECKLIST_SGI, required=False)
+    catatan = forms.CharField(required=False, max_length=2000,
+                              widget=forms.Textarea(attrs={'rows': 4, 'class': 'form-control'}))
+    aksi = forms.ChoiceField(choices=(('draft', 'Simpan draft'), ('safety', 'Lanjut ke Safety'), ('it', 'Return to IT')))
+
+
 class CekGeometriForm(forms.Form):
     """The page asks for an SHP to be read, or the drawn polygon to be checked, before saving."""
     geom_json = forms.CharField(required=False)

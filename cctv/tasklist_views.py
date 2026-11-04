@@ -12,7 +12,7 @@ from navigation import roles
 from notifikasi.models import Pic
 
 from .models import PengajuanCoverage, RiwayatPengajuan
-from .pengajuan_views import TABS, _can_it, _can_mitra, _can_safety, _can_sgi, _scope, _visible
+from .pengajuan_views import TABS, _can_it, _can_mitra, _can_safety, _can_sgi, _scope, _tabs, _visible
 
 Status = PengajuanCoverage.Status
 Aksi = RiwayatPengajuan.Aksi
@@ -25,6 +25,11 @@ TUGAS = {
     Status.MENUNGGU_SGI: 'Review boundary coverage',
     Status.RETURN_SGI: 'Review ulang boundary yang dikembalikan Safety',
     Status.MENUNGGU_SAFETY: 'Review dan beri keputusan Safety',
+}
+# PT Berau Coal: Survey BC digitises and verifies in one step.
+TUGAS_GABUNG = {
+    Status.MENUNGGU_SGI: 'Digitasi dan verifikasi boundary coverage',
+    Status.RETURN_SGI: 'Perbaiki boundary yang dikembalikan Safety',
 }
 CAN_WORK = {'it': _can_it, 'mitra': _can_mitra, 'sgi': _can_sgi, 'safety': _can_safety}
 STAGE_ROLE = {'mitra': roles.SURVEY_MITRA, 'sgi': roles.SURVEY_BC, 'safety': roles.SAFETY}
@@ -58,9 +63,14 @@ def _is_mine(pengajuan, user, group_names, pics):
     return STAGE_ROLE.get(tahap) in group_names
 
 
+def _tugas(pengajuan):
+    return (pengajuan.gabung and TUGAS_GABUNG.get(pengajuan.status)) or TUGAS[pengajuan.status]
+
+
 def _progress(pengajuan, pics):
-    """The five stages of one request, for the vertical stepper."""
-    reached = [key for key, _ in TABS].index(pengajuan.tahap)
+    """The stages of one request, for the vertical stepper."""
+    stages = _tabs(pengajuan)
+    reached = [key for key, _ in stages].index(pengajuan.tahap)
     closed, returned = {}, None
     for entry in pengajuan.riwayat.select_related('user'):  # oldest first: the latest one wins
         if entry.aksi in STAGE_DONE_BY:
@@ -68,7 +78,7 @@ def _progress(pengajuan, pics):
         elif entry.aksi == Aksi.DIKEMBALIKAN:
             returned = entry
     steps = []
-    for index, (key, label) in enumerate(TABS):
+    for index, (key, label) in enumerate(stages):
         is_current = index == reached
         steps.append({
             'label': label,
@@ -76,7 +86,7 @@ def _progress(pengajuan, pics):
             'selesai': index < reached,
             'aktif': is_current,
             'dikembalikan': is_current and pengajuan.status in RETURNED,
-            'tugas': TUGAS.get(pengajuan.status) if is_current else '',
+            'tugas': _tugas(pengajuan) if is_current else '',
             'catatan': returned.catatan if is_current and returned and pengajuan.status in RETURNED else '',
             'oleh': closed.get(key) if index < reached else None,
             'pics': [pic.nama for pic in _covering(pics, key, pengajuan)],
@@ -88,7 +98,7 @@ def _progress(pengajuan, pics):
 def _row(pengajuan, pics):
     return {
         'p': pengajuan,
-        'tugas': TUGAS[pengajuan.status],
+        'tugas': _tugas(pengajuan),
         'pics': [pic.nama for pic in _covering(pics, pengajuan.tahap, pengajuan)],
     }
 

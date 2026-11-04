@@ -54,15 +54,15 @@ class NotifyTests(TestCase):
     def setUpTestData(cls):
         User = get_user_model()
         cls.lmo, cls.smo = Site.objects.create(kode='LMO'), Site.objects.create(kode='SMO')
-        cls.perusahaan = Perusahaan.objects.create(nama='PT Berau Coal', kode='BC')
-        cls.cctv = Cctv.objects.create(no_cctv='LMO-BC-0099', nama='Pit J', site=cls.lmo, perusahaan=cls.perusahaan,
+        cls.perusahaan = Perusahaan.objects.create(nama='PT Pamapersada Nusantara', kode='PM')
+        cls.cctv = Cctv.objects.create(no_cctv='LMO-PM-0099', nama='Pit J', site=cls.lmo, perusahaan=cls.perusahaan,
                                        posisi=Point(117.6, 2.2, srid=4326))
         cls.it = User.objects.create_user('it', password='x', email='it@example.com', first_name='Ifa')
         cls.it.groups.add(Group.objects.get(name=roles.IT_PAMA))
 
-        lmo_role = Group.objects.create(name='CCTV LMO - PT Berau Coal')
+        lmo_role = Group.objects.create(name='CCTV LMO - PT Pamapersada Nusantara')
         CakupanCctv.objects.create(group=lmo_role, site=cls.lmo, perusahaan=cls.perusahaan)
-        smo_role = Group.objects.create(name='CCTV SMO - PT Berau Coal')
+        smo_role = Group.objects.create(name='CCTV SMO - PT Pamapersada Nusantara')
         CakupanCctv.objects.create(group=smo_role, site=cls.smo, perusahaan=cls.perusahaan)
         cls.mitra_lmo = cls._user('mitra-lmo', roles.SURVEY_MITRA, lmo_role, no_hp='0812 1111 1111')
         cls.mitra_smo = cls._user('mitra-smo', roles.SURVEY_MITRA, smo_role, no_hp='0812 2222 2222')
@@ -106,7 +106,7 @@ class NotifyTests(TestCase):
         self.notify(self.request('menunggu_sgi'))
         self.assertEqual(list(Notifikasi.objects.values_list('kanal', 'tujuan')), [('email', 'bc@example.com')])
         self.assertEqual(len(mail.outbox), 1)
-        self.assertEqual(mail.outbox[0].subject, '[BeSentry] Waiting Survey BC: LMO-BC-0099')
+        self.assertEqual(mail.outbox[0].subject, '[BeSentry] Waiting Survey BC: LMO-PM-0099')
         self.assertNotIn('*', mail.outbox[0].body)  # WhatsApp bold markers are stripped for email
 
     def test_assigned_pics_replace_the_role_users(self):

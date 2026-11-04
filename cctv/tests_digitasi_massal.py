@@ -121,6 +121,18 @@ class DigitasiMassalTests(TestCase):
         self.assertEqual(self.dua.status, 'return_mitra')
         self.assertEqual(self.smo_task.status, 'menunggu_mitra')
 
+    def test_berau_coal_digitised_by_survey_bc_is_not_a_bulk_task(self):
+        berau_coal = Perusahaan.objects.create(nama='PT Berau Coal BC', kode=Perusahaan.KODE_BERAU_COAL)
+        cctv = Cctv.objects.create(no_cctv='BC-1', nama='Kamera', site=self.lmo, perusahaan=berau_coal,
+                                   posisi=Point(*CAMERA, srid=4326))
+        PengajuanCoverage.objects.create(cctv=cctv, jenis='dipindah', status='menunggu_sgi')
+        admin = get_user_model().objects.create_user('admin', password='x')
+        admin.groups.add(Group.objects.get_or_create(name=roles.ADMIN_HAZARD_MOTION)[0])
+        self.client.force_login(admin)
+        response = self.post(shp_zip(self.good('BC-1')), 'cek')
+        self.assertEqual(response.context['jumlah_lolos'], 0)
+        self.assertEqual(response.context['rows'][0]['pesan'], 'Tidak ada tugas digitasi untuk CCTV ini.')
+
     def test_sending_twice_does_not_repeat(self):
         self.post(shp_zip(self.good('LMO-1')), 'kirim')
         self.post(shp_zip(self.good('LMO-1')), 'kirim')

@@ -21,6 +21,7 @@ urlpatterns = [
     path('cctv/pengajuan/<int:pk>/mitra/', pengajuan_views.mitra, name='pengajuan_mitra'),
     path('cctv/pengajuan/<int:pk>/mitra/cek/', pengajuan_views.mitra_cek, name='pengajuan_mitra_cek'),
     path('cctv/pengajuan/<int:pk>/sgi/', pengajuan_views.sgi, name='pengajuan_sgi'),
+    path('cctv/pengajuan/<int:pk>/sgi/digitasi/', pengajuan_views.sgi_gabung, name='pengajuan_sgi_gabung'),
     path('cctv/pengajuan/<int:pk>/safety/', pengajuan_views.safety, name='pengajuan_safety'),
     path('cctv/pengajuan/<int:pk>/tangkapan/', pengajuan_views.tangkapan, name='pengajuan_tangkapan'),
 ]

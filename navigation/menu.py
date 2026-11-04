@@ -51,6 +51,7 @@ MAIN_MENU = (
         MenuItem('CCTV Management', 'camera', children=(
             # Visible to admins and to any role with a CCTV site/perusahaan scope.
             MenuItem('CCTV Database', url_name='cctv:index', check='cctv.access.can_open'),
+            MenuItem('Area Kerja', url_name='areakerja:index', check='areakerja.access.can_open'),
             MenuItem('CCTV PJA Dedicated', page='cctv-pja-dedicated'),
             MenuItem('Pengawas Control Room', page='cctv-control-room'),
         )),

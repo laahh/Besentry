@@ -100,6 +100,11 @@ TODO = {
     'approved': 'Pengajuan selesai, boundary sudah sah dan berlaku:',
     'approved_warning': 'Pengajuan selesai dengan catatan, boundary sudah berlaku:',
 }
+# PT Berau Coal: Survey BC digitises and verifies in one step.
+TODO_GABUNG = {
+    'menunggu_sgi': 'Mohon digitasi dan verifikasi boundary coverage CCTV ini (gambar di peta atau upload SHP):',
+    'return_sgi': 'Safety mengembalikan ke Survey BC. Mohon perbaiki boundary:',
+}
 
 
 def _message(pengajuan, user):
@@ -131,7 +136,7 @@ def _message(pengajuan, user):
         '',
         f'Oleh: {who}, {timezone.localtime():%d %b %Y %H:%M} WITA',
         '',
-        TODO.get(pengajuan.status, 'Detail pengajuan:'),
+        (pengajuan.gabung and TODO_GABUNG.get(pengajuan.status)) or TODO.get(pengajuan.status, 'Detail pengajuan:'),
         link,
     ]
     return judul, '\n'.join(lines)

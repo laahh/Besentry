@@ -25,7 +25,9 @@ from . import coverage
 from .access import get_scope
 from .forms import CctvAksesForm, CctvForm, CctvSpecForm
 from .models import Cctv, PengajuanCoverage
-from .pengajuan_forms import CekGeometriForm, DigitasiForm, ItForm, ReviewForm, draft_data, mark_previous
+from .pengajuan_forms import (
+    CekGeometriForm, DigitasiForm, DigitasiSgiForm, ItForm, ReviewForm, draft_data, mark_previous,
+)
 from .views import _akses
 
 Status = PengajuanCoverage.Status
@@ -36,7 +38,17 @@ TABS = (
     ('safety', 'Review Safety BC'),
     ('selesai', 'Sah & berlaku'),
 )
-TAB_KEYS = [key for key, _ in TABS]
+# PT Berau Coal: no Survey Mitra; Survey BC digitises and verifies in one tab.
+TABS_GABUNG = (
+    ('it', 'Input IT'),
+    ('sgi', 'Digitasi + Verifikasi Survey BC'),
+    ('safety', 'Review Safety BC'),
+    ('selesai', 'Sah & berlaku'),
+)
+
+
+def _tabs(pengajuan):
+    return TABS_GABUNG if pengajuan and pengajuan.gabung else TABS
 
 
 def _scope(user):
@@ -71,6 +83,11 @@ def _can_it(scope, pengajuan):
 
 def _can_mitra(scope, pengajuan):
     return pengajuan.status in (Status.MENUNGGU_MITRA, Status.RETURN_MITRA) and scope.can_digitize(pengajuan.cctv)
+
+
+def _can_draw(scope, pengajuan):
+    """Whoever draws the boundary now: Survey Mitra, or Survey BC for PT Berau Coal."""
+    return _can_mitra(scope, pengajuan) or (pengajuan.gabung and _can_sgi(scope, pengajuan))
 
 
 def _can_sgi(scope, pengajuan):
@@ -151,14 +168,18 @@ def _it_forms(scope, pengajuan, data=None, files=None):
 
 
 def _render(request, scope, pengajuan, tab=None, forms=None):
-    tab = tab if tab in TAB_KEYS else (pengajuan.tahap if pengajuan else 'it')
+    tabs = _tabs(pengajuan)
+    keys = [key for key, _ in tabs]
+    tab = tab if tab in keys else (pengajuan.tahap if pengajuan else 'it')
+    gabung = bool(pengajuan) and pengajuan.gabung
     can = {
         'it': _can_it(scope, pengajuan) if pengajuan else scope.can_create,
         'mitra': bool(pengajuan) and _can_mitra(scope, pengajuan),
         'sgi': bool(pengajuan) and _can_sgi(scope, pengajuan),
         'safety': bool(pengajuan) and _can_safety(scope, pengajuan),
+        'draw': bool(pengajuan) and _can_draw(scope, pengajuan),
     }
-    reached = TAB_KEYS.index(pengajuan.tahap) if pengajuan else 0
+    reached = keys.index(pengajuan.tahap) if pengajuan else 0
     pics = {}
     if pengajuan and pengajuan.cctv_id:
         for pic in notifikasi.pics_for(pengajuan.cctv).only('tahap', 'nama'):
@@ -167,8 +188,10 @@ def _render(request, scope, pengajuan, tab=None, forms=None):
         'p': pengajuan,
         'tab': tab,
         'tabs': [(key, label, index < reached, index == reached, pics.get(key, []))
-                 for index, (key, label) in enumerate(TABS)],
-        'tab_terbuka': TAB_KEYS[:reached + 1],
+                 for index, (key, label) in enumerate(tabs)],
+        'tab_terbuka': keys[:reached + 1],
+        # The tab with the drawing map: Survey Mitra's, or Survey BC's combined one for PT Berau Coal.
+        'tab_digitasi': tab == 'mitra' or (gabung and tab == 'sgi'),
         'can': can,
         'scope': scope,
         **(forms or _it_forms(scope, pengajuan)),
@@ -183,6 +206,10 @@ def _render(request, scope, pengajuan, tab=None, forms=None):
                 'nama_shp': pengajuan.file_shp,
             }),
             'sebelumnya': coverage.previous_request(pengajuan),
+            'sgi_form': DigitasiSgiForm(initial={
+                'geom_json': pengajuan.geom.geojson if pengajuan.geom else '',
+                'nama_shp': pengajuan.file_shp,
+            }),
             'checklist_sgi': [(k, label, k in checked_sgi) for k, label in pengajuan.CHECKLIST_SGI],
             'checklist_safety': [(k, label, k in checked_safety) for k, label in pengajuan.CHECKLIST_SAFETY],
             'luas_sebelum': coverage.luas_ha(pengajuan.geom_sebelum),
@@ -351,7 +378,7 @@ def mitra_cek(request, pk):
     """
     scope = _scope(request.user)
     pengajuan = get_object_or_404(_visible(scope, request.user), pk=pk)
-    if not _can_mitra(scope, pengajuan):
+    if not _can_draw(scope, pengajuan):
         raise PermissionDenied
     form = CekGeometriForm(request.POST, request.FILES)
     if not form.is_valid():
@@ -404,6 +431,39 @@ def _review(request, pk, can, run):
 @require_POST
 def sgi(request, pk):
     return _review(request, pk, _can_sgi, coverage.review_sgi)
+
+
+@login_required
+@require_POST
+def sgi_gabung(request, pk):
+    """PT Berau Coal: Survey BC saves the boundary and the checklist, and decides, in one post."""
+    scope = _scope(request.user)
+    pengajuan = get_object_or_404(_visible(scope, request.user), pk=pk)
+    if not (pengajuan.gabung and _can_sgi(scope, pengajuan)):
+        raise PermissionDenied
+    back = redirect(_url(pengajuan, 'sgi'))
+    form = DigitasiSgiForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, '; '.join(e for errors in form.errors.values() for e in errors))
+        return back
+    data = form.cleaned_data
+    nama = data['nama_shp']
+    try:
+        coverage.digitasi_sgi(
+            pengajuan, request.user, coverage.parse_geometry(data['geom_json']), aksi=data['aksi'],
+            checklist=data['checklist'], catatan=data['catatan'], file_shp=nama,
+            sumber=PengajuanCoverage.SumberGeom.SHP if nama else PengajuanCoverage.SumberGeom.GAMBAR,
+            orthophoto=Orthophoto.objects.filter(aktif=True).first(),
+        )
+    except (coverage.GeometryError, coverage.ReviewError) as exc:
+        messages.error(request, getattr(exc, 'message', None) or str(exc))
+        return back
+    if data['aksi'] == 'draft':
+        messages.success(request, f'Draft boundary {pengajuan.no_cctv} disimpan.')
+        return back
+    messages.success(request, f'{pengajuan.no_cctv}: {pengajuan.get_status_display()}.')
+    _notify(request, pengajuan)
+    return redirect(_url(pengajuan))
 
 
 @login_required

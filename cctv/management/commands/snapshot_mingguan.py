@@ -15,8 +15,8 @@ def _next_monday_midnight():
 
 
 class Command(BaseCommand):
-    help = ('Tutup minggu lalu: simpan snapshot semua CCTV, boundary, dan status pengajuan (WITA). '
-            'Minggu yang sudah ditutup tidak diubah lagi.')
+    help = ('Tutup minggu lalu: simpan snapshot semua CCTV, boundary, dan status pengajuan (WITA), lalu '
+            'snapshot coverage area kerja per Mitra Site. Minggu yang sudah ditutup tidak diubah lagi.')
 
     def add_arguments(self, parser):
         parser.add_argument('--tunggu', action='store_true',
@@ -37,3 +37,11 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f'{minggu_label(minggu)} ditutup: {written} CCTV.'))
         else:
             self.stdout.write(f'{minggu_label(minggu)} sudah ditutup sebelumnya.')
+        from areakerja import kalkulasi  # after the CCTV snapshot, which it is computed against
+        locked, waiting = kalkulasi.tutup_minggu(minggu)
+        late = kalkulasi.selesaikan_menunggu()
+        if locked or waiting or late:
+            self.stdout.write(self.style.SUCCESS(
+                f'Coverage {minggu_label(minggu)}: {locked} Mitra Site terkunci, {waiting} menunggu area kerja; '
+                f'{late} week tertunda diselesaikan.'))
+        kalkulasi.hitung_live()  # the new week starts
