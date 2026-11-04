@@ -2,7 +2,7 @@ from django import forms
 
 from cctv.pengajuan_forms import SHP_ZIP_MAX_MB
 
-from .models import AreaKerja, JenisArea
+from .models import AreaKerja, Departemen, JenisArea
 
 
 class SlotForm(forms.Form):
@@ -22,5 +22,21 @@ class AjukanForm(forms.Form):
 
 
 class VerifikasiForm(forms.Form):
-    aksi = forms.ChoiceField(choices=(('approve', 'Approve'), ('return', 'Return to Mitra')))
+    departemen = forms.ChoiceField(choices=Departemen.choices)
+    aksi = forms.ChoiceField(choices=(('setujui', 'Disetujui'), ('kembalikan', 'Kembalikan')))
     catatan = forms.CharField(required=False, max_length=2000)
+
+
+class AnotasiForm(forms.Form):
+    """A point (lon, lat), or a line / an area drawn on the map (geometri, GeoJSON)."""
+    departemen = forms.ChoiceField(choices=Departemen.choices)
+    lon = forms.FloatField(min_value=-180, max_value=180, required=False)
+    lat = forms.FloatField(min_value=-90, max_value=90, required=False)
+    geometri = forms.CharField(required=False, max_length=200_000)
+    teks = forms.CharField(max_length=1000)
+
+    def clean(self):
+        cleaned = super().clean()
+        if not cleaned.get('geometri') and (cleaned.get('lon') is None or cleaned.get('lat') is None):
+            raise forms.ValidationError('Pilih titik, garis, atau area di peta.')
+        return cleaned

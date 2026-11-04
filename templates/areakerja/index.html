@@ -23,13 +23,13 @@
 <div class="row">
   {% include "dashboard/partials/stat_card.html" with color="primary" icon="briefcase" label="Mitra Site aktif" value=counts.total %}
   {% include "dashboard/partials/stat_card.html" with color="secondary" icon="check-circle" label="Approved week ini" value=counts.approved %}
-  {% include "dashboard/partials/stat_card.html" with color="primary" icon="clock" label="Menunggu Survey BC" value=counts.menunggu %}
+  {% include "dashboard/partials/stat_card.html" with color="primary" icon="clock" label="Menunggu Verifikasi BC" value=counts.menunggu %}
   {% include "dashboard/partials/stat_card.html" with color="secondary" icon="rotate-ccw" label="Memakai area minggu lalu" value=counts.fallback %}
 </div>
 
 <div class="info-blok info-blok-tipis mb-3">
   <i data-feather="info"></i>
-  <span>Area kerja diupload setiap Senin untuk week berjalan dan berlaku setelah diverifikasi Survey BC. Tanpa upload, week ini memakai area Approved terakhir dengan catatan.</span>
+  <span>Area kerja diupload setiap Senin untuk week berjalan dan berlaku setelah Verifikasi BC (SGI, Mining, Safety BC). Tanpa upload, week ini memakai area Approved terakhir dengan catatan.</span>
 </div>
 
 <!-- Filters -->
@@ -72,7 +72,7 @@
             <td class="f-w-600">{{ row.mitra_site.site.kode }}</td>
             <td>{{ row.mitra_site.perusahaan.nama }}</td>
             <td>
-              {% if row.pengajuan %}<a href="{% url 'areakerja:pengajuan' row.pengajuan.pk %}"><span class="badge badge-{{ row.pengajuan.badge }}{% if row.pengajuan.badge == 'light' %} text-dark{% endif %}">{{ row.pengajuan.get_status_display }}</span></a>
+              {% if row.pengajuan %}<a href="{% url 'areakerja:pengajuan' row.pengajuan.pk %}"><span class="badge badge-{{ row.pengajuan.badge }}{% if row.pengajuan.badge == 'light' %} text-dark{% endif %}">{{ row.pengajuan.status_label }}</span></a>
               {% else %}<span class="text-muted f-12">Belum ada</span>{% endif %}
             </td>
             <td class="f-12">

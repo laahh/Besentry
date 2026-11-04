@@ -1,0 +1,28 @@
+{% load pengguna %}
+{# Reviewers' map notes. The uploader ticks them solved while fixing; their authors may remove them during Verifikasi BC. #}
+<div class="card verif-card">
+  <div class="card-body">
+    <h6>Anotasi peta <span class="text-muted f-12 fw-normal">(<span id="anotasi-count">{{ anotasi|length }}</span>)</span></h6>
+    <div id="anotasi-list">
+    {% for a in anotasi %}
+    <div class="anotasi-item" data-anotasi="{{ a.pk }}" data-lon="{{ a.posisi.x|stringformat:'f' }}" data-lat="{{ a.posisi.y|stringformat:'f' }}">
+      <span class="anotasi-no anotasi-{{ a.departemen }}">{{ forloop.counter }}</span>
+      <div class="flex-fill">
+        <div class="f-12">{{ a.teks }}</div>
+        <div class="text-muted anotasi-meta">{{ a.get_bentuk_display }}{% if a.ukuran %} · {{ a.ukuran }}{% endif %} · {{ a.get_departemen_display }} · {{ a.user|nama_user }} · {{ a.dibuat|date:"d M H:i" }}</div>
+        {% if tab == 'pengajuan' and can.edit %}
+        <form method="post" action="{% url 'areakerja:anotasi_tandai' p.pk a.pk %}">
+          {% csrf_token %}
+          <input type="hidden" name="selesai" value="{% if a.selesai %}0{% else %}1{% endif %}">
+          <label class="form-check f-12 mb-0"><input class="form-check-input" type="checkbox" onchange="this.form.submit()"{% if a.selesai %} checked{% endif %}> Sudah diperbaiki</label>
+        </form>
+        {% elif a.selesai %}<span class="badge badge-success">Sudah diperbaiki</span>
+        {% endif %}
+        {% if can.anotasi and a.user_id == request.user.pk %}<button class="btn btn-link btn-xs p-0 text-danger anotasi-hapus" type="button" data-url="{% url 'areakerja:anotasi_hapus' p.pk a.pk %}">Hapus</button>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    </div>
+    <p class="f-12 text-muted mb-0" id="anotasi-kosong"{% if anotasi %} hidden{% endif %}>Belum ada anotasi.</p>
+  </div>
+</div>

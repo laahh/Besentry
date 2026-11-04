@@ -1,4 +1,5 @@
 import datetime
+import json
 from contextlib import contextmanager
 from unittest import mock
 
@@ -25,6 +26,12 @@ from .models import (
 W45 = datetime.date(2026, 11, 2)
 W46 = W45 + datetime.timedelta(days=7)
 JENIS = [j.value for j in JenisArea]
+
+
+def setujui_semua(pengajuan, user):
+    """Verifikasi BC: SGI, Mining and Safety BC each approve; the third makes it Approved."""
+    for departemen in ('sgi', 'mining', 'safety'):
+        services.verifikasi(pengajuan, user, departemen=departemen, aksi='setujui')
 
 
 def this_week(monday):
@@ -112,24 +119,43 @@ class AreaKerjaTests(TestCase):
         pengajuan = self.fill(pengajuan, self.mitra, pit=[square(*CAMERA)])
         services.ajukan(pengajuan, self.mitra)
         self.assertEqual(pengajuan.status, 'menunggu_sgi')
-        with self.assertRaisesMessage(ReviewError, 'tidak bisa diubah'):  # locked while Survey BC checks
+        with self.assertRaisesMessage(ReviewError, 'tidak bisa diubah'):  # locked during Verifikasi BC
             services.save_slot(pengajuan, self.mitra, 'pit', 'tidak_ada')
+        services.verifikasi(pengajuan, self.survey_bc, departemen='sgi', aksi='setujui')
         with self.assertRaisesMessage(ReviewError, 'Catatan wajib'):
-            services.verifikasi(pengajuan, self.survey_bc, aksi='return')
-        services.verifikasi(pengajuan, self.survey_bc, aksi='return', catatan='Pit kurang ke timur')
-        self.assertEqual(pengajuan.status, 'return_mitra')
+            services.verifikasi(pengajuan, self.survey_bc, departemen='mining', aksi='kembalikan')
+        services.verifikasi(pengajuan, self.survey_bc, departemen='mining', aksi='kembalikan', catatan='Pit kurang ke timur')
+        self.assertEqual((pengajuan.status, pengajuan.status_label), ('return_mitra', 'Return to Mitra'))
         services.save_slot(pengajuan, self.mitra, 'pit', 'upload', shp_zip([square(CAMERA[0] + 0.0005, CAMERA[1])]))
         services.ajukan(pengajuan, self.mitra)
-        services.verifikasi(pengajuan, self.survey_bc, aksi='approve')
+        setujui_semua(pengajuan, self.survey_bc)
         berlaku = services.area_berlaku(self.mitra_site, W45)
         self.assertEqual((berlaku['pengajuan'], berlaku['fallback'], berlaku['catatan']), (pengajuan, False, ''))
         aksi = list(pengajuan.riwayat.values_list('aksi', flat=True))
-        self.assertEqual(aksi, ['diajukan', 'dikembalikan', 'diajukan', 'disetujui'])
+        self.assertEqual(aksi, ['diajukan', 'verifikasi', 'dikembalikan', 'diajukan',
+                                'verifikasi', 'verifikasi', 'verifikasi', 'disetujui'])
+
+    def test_verifikasi_needs_all_three_departments(self):
+        pengajuan = self.fill(services.request_for(self.mitra_site, self.mitra), self.mitra, pit=[square(*CAMERA)])
+        services.ajukan(pengajuan, self.mitra)
+        services.verifikasi(pengajuan, self.survey_bc, departemen='sgi', aksi='setujui')
+        services.verifikasi(pengajuan, self.survey_bc, departemen='safety', aksi='setujui')
+        self.assertEqual(pengajuan.status, 'menunggu_sgi')  # Mining still to approve
+        with self.assertRaisesMessage(ReviewError, 'sudah menyetujui'):
+            services.verifikasi(pengajuan, self.survey_bc, departemen='sgi', aksi='setujui')
+        services.verifikasi(pengajuan, self.survey_bc, departemen='mining', aksi='kembalikan', catatan='Hauling belum ada')
+        services.save_slot(pengajuan, self.mitra, 'hauling', 'upload', shp_zip([square(CAMERA[0] + 0.002, CAMERA[1])]))
+        services.ajukan(pengajuan, self.mitra)
+        self.assertEqual(pengajuan.verifikasi.count(), 0)  # sent again: every department checks afresh
+        setujui_semua(pengajuan, self.survey_bc)
+        self.assertEqual(pengajuan.status, 'approved')
+        with self.assertRaisesMessage(ReviewError, 'tidak bisa diubah'):  # nothing changes once Approved
+            services.save_slot(pengajuan, self.mitra, 'pit', 'tidak_ada')
 
     def test_fallback_and_reuse_last_week(self):
         pengajuan = self.fill(services.request_for(self.mitra_site, self.mitra), self.mitra, pit=[square(*CAMERA)])
         services.ajukan(pengajuan, self.mitra)
-        services.verifikasi(pengajuan, self.survey_bc, aksi='approve')
+        setujui_semua(pengajuan, self.survey_bc)
         # Week 46, nothing uploaded yet: last week's area counts, with a note.
         berlaku = services.area_berlaku(self.mitra_site, W46)
         self.assertEqual((berlaku['pengajuan'], berlaku['fallback'], berlaku['minggu_area']), (pengajuan, True, W45))
@@ -145,21 +171,27 @@ class AreaKerjaTests(TestCase):
         services.ajukan(pengajuan, self.mitra)
         late = timezone.make_aware(datetime.datetime(2026, 11, 10, 9, 0))
         with mock.patch('areakerja.services.timezone.now', return_value=late):
-            services.verifikasi(pengajuan, self.survey_bc, aksi='approve')
+            setujui_semua(pengajuan, self.survey_bc)
         berlaku = services.area_berlaku(self.mitra_site, W45)
         self.assertEqual((berlaku['pengajuan'], berlaku['catatan']), (pengajuan, 'Approved terlambat'))
 
-    def test_berau_coal_is_approved_at_once_and_edits_are_logged(self):
+    def test_berau_coal_goes_through_verifikasi_too(self):
         pengajuan = self.fill(services.request_for(self.bc_site, self.survey_bc), self.survey_bc, pit=[square(*CAMERA)])
         services.ajukan(pengajuan, self.survey_bc)
-        self.assertEqual((pengajuan.status, pengajuan.disetujui_oleh), ('approved', self.survey_bc))
-        services.save_slot(pengajuan, self.survey_bc, 'pit', 'upload', shp_zip([square(CAMERA[0] + 0.0005, CAMERA[1])]))
-        edit = RiwayatAreaKerja.objects.get(pengajuan=pengajuan, aksi='diubah')
-        self.assertEqual((edit.user, edit.sebelum['jenis']), (self.survey_bc, 'pit'))
-        self.assertIsNotNone(edit.sebelum['geom'])
-        with mock.patch('areakerja.services.this_monday', return_value=W46):  # past weeks stay as they were
-            with self.assertRaisesMessage(ReviewError, 'tidak bisa diubah'):
-                services.save_slot(pengajuan, self.survey_bc, 'pit', 'tidak_ada')
+        self.assertEqual(pengajuan.status, 'menunggu_sgi')  # no longer in force at once
+        services.verifikasi(pengajuan, self.survey_bc, departemen='safety', aksi='kembalikan', catatan='Batas pit lama')
+        self.assertEqual(pengajuan.status_label, 'Return to Survey BC')
+        services.ajukan(pengajuan, self.survey_bc)
+        setujui_semua(pengajuan, self.survey_bc)
+        self.assertEqual(pengajuan.status, 'approved')
+        self.client.force_login(self.survey_bc)
+        page = self.client.get(reverse('areakerja:pengajuan', args=[pengajuan.pk]))
+        self.assertEqual([key for key, *_ in page.context['tabs']], ['pengajuan', 'sgi', 'selesai'])
+        # Approved: only Sah & berlaku opens, whatever the link asks for.
+        self.assertEqual([link for *_, link in page.context['tabs']], [False, False, True])
+        page = self.client.get(reverse('areakerja:pengajuan', args=[pengajuan.pk]), {'tab': 'pengajuan'})
+        self.assertEqual(page.context['tab'], 'selesai')
+        self.assertNotContains(page, '?tab=sgi')
 
     def test_inactive_site_stops(self):
         self.other.aktif = False
@@ -182,7 +214,7 @@ class AreaKerjaTests(TestCase):
         self.assertEqual(AreaKerja.objects.get(pengajuan=pengajuan, jenis='pit').jumlah_feature, 1)
         self.assertContains(self.client.get(reverse('areakerja:pengajuan', args=[pengajuan.pk])), 'Pit')
         verify = reverse('areakerja:verifikasi', args=[pengajuan.pk])
-        self.assertEqual(self.client.post(verify, {'aksi': 'approve'}).status_code, 403)
+        self.assertEqual(self.client.post(verify, {'departemen': 'sgi', 'aksi': 'setujui'}).status_code, 403)
         self.client.force_login(self.survey_bc)
         self.assertEqual(len(self.client.get(reverse('areakerja:index')).context['rows']), 3)  # Survey BC sees all
 
@@ -193,13 +225,101 @@ class AreaKerjaTests(TestCase):
         self.assertEqual(self.client.get(url).status_code, 302)  # login first
         self.client.force_login(self.mitra)
         self.assertEqual(self.client.get(url).json()['features'], [])  # not Approved yet: nothing in force
-        services.verifikasi(pengajuan, self.survey_bc, aksi='approve')
+        setujui_semua(pengajuan, self.survey_bc)
         features = self.client.get(url).json()['features']
         self.assertEqual([f['properties']['jenis'] for f in features], ['pit'])  # 'tidak ada' kinds have no shape
         self.assertEqual((features[0]['properties']['site'], features[0]['properties']['fallback']), ('LMO', False))
         self.mitra_site.aktif = False
         self.mitra_site.save()
         self.assertEqual(self.client.get(url).json()['features'], [])  # stopped sites drop off the maps
+
+    def test_each_department_approves_only_for_itself(self):
+        User = get_user_model()
+        mining = User.objects.create_user('mining', password='x')
+        mining.groups.add(Group.objects.get(name=roles.MINING))
+        pengajuan = self.fill(services.request_for(self.mitra_site, self.mitra), self.mitra, pit=[square(*CAMERA)])
+        services.ajukan(pengajuan, self.mitra)
+        self.client.force_login(mining)
+        verify = reverse('areakerja:verifikasi', args=[pengajuan.pk])
+        self.assertEqual(self.client.post(verify, {'departemen': 'sgi', 'aksi': 'setujui'}).status_code, 403)
+        self.client.post(verify, {'departemen': 'mining', 'aksi': 'setujui'})
+        self.assertEqual(list(pengajuan.verifikasi.values_list('departemen', 'user')), [('mining', mining.pk)])
+        page = self.client.get(reverse('areakerja:pengajuan', args=[pengajuan.pk]))
+        self.assertEqual(page.context['departemen_saya'], ['mining'])
+
+    def test_map_notes_stay_until_solved(self):
+        pengajuan = self.fill(services.request_for(self.mitra_site, self.mitra), self.mitra, pit=[square(*CAMERA)])
+        add = reverse('areakerja:anotasi_tambah', args=[pengajuan.pk])
+        self.client.force_login(self.survey_bc)
+        note = {'departemen': 'sgi', 'lon': CAMERA[0] + 0.0005, 'lat': CAMERA[1] + 0.0005, 'teks': 'Ramp belum masuk area'}
+        self.assertEqual(self.client.post(add, note).status_code, 400)  # only during Verifikasi BC
+        services.ajukan(pengajuan, self.mitra)
+        self.assertEqual(self.client.post(add, {**note, 'departemen': 'safety'}).status_code, 403)  # not their department
+        made = self.client.post(add, note).json()
+        self.assertEqual((made['departemen'], made['milik_saya'], made['selesai']), ('SGI', True, False))
+        services.verifikasi(pengajuan, self.survey_bc, departemen='sgi', aksi='kembalikan', catatan='Lihat anotasi')
+
+        # The uploader fixes the area; the note is still there, and is ticked solved.
+        services.save_slot(pengajuan, self.mitra, 'pit', 'upload', shp_zip([square(*CAMERA, size=0.0012)]))
+        self.client.force_login(self.mitra)
+        page = self.client.get(reverse('areakerja:pengajuan', args=[pengajuan.pk]))
+        self.assertEqual([a.teks for a in page.context['anotasi']], ['Ramp belum masuk area'])
+        tandai = reverse('areakerja:anotasi_tandai', args=[pengajuan.pk, made['id']])
+        self.client.post(tandai, {'selesai': '1'})
+        anotasi = pengajuan.anotasi.get()
+        self.assertEqual((anotasi.selesai, anotasi.selesai_oleh), (True, self.mitra))
+        services.ajukan(pengajuan, self.mitra)
+        self.client.force_login(self.survey_bc)
+        hapus = reverse('areakerja:anotasi_hapus', args=[pengajuan.pk, made['id']])
+        self.assertEqual(self.client.post(hapus).status_code, 200)
+        self.assertEqual(pengajuan.anotasi.count(), 0)
+
+    def test_line_and_area_notes_carry_their_size(self):
+        pengajuan = self.fill(services.request_for(self.mitra_site, self.mitra), self.mitra, pit=[square(*CAMERA)])
+        services.ajukan(pengajuan, self.mitra)
+        x, y = CAMERA
+        garis = json.dumps({'type': 'LineString', 'coordinates': [[x, y], [x + 0.001, y]]})          # ~111 m
+        area = json.dumps({'type': 'Polygon', 'coordinates': [[[x, y], [x + 0.001, y], [x + 0.001, y + 0.001],
+                                                               [x, y + 0.001], [x, y]]]})         # ~1.2 ha
+        line = services.tambah_anotasi(pengajuan, self.survey_bc, 'sgi', 'Jalan belum masuk', geometri=garis)
+        self.assertEqual(line.bentuk, 'garis')
+        self.assertAlmostEqual(line.panjang_m, 111, delta=2)
+        self.assertAlmostEqual(line.posisi.x, x + 0.0005, places=6)  # the number sits mid-line
+        poly = services.tambah_anotasi(pengajuan, self.survey_bc, 'sgi', 'Disposal baru', geometri=area)
+        self.assertEqual((poly.bentuk, round(poly.luas_ha, 1)), ('area', 1.2))
+        self.assertTrue(poly.geom.contains(poly.posisi))
+        self.assertEqual((line.ukuran, poly.ukuran), ('111 m', '1,23 ha'))
+        bad = (
+            ({'type': 'LineString', 'coordinates': [[x, y]]}, 'minimal 2'),
+            ({'type': 'Polygon', 'coordinates': [[[x, y], [x + 0.001, y + 0.001], [x + 0.001, y], [x, y + 0.001], [x, y]]]},
+             'saling memotong'),
+            ({'type': 'LineString', 'coordinates': [[110.0, -5.0], [110.001, -5.0]]}, 'luar batas'),
+        )
+        for geometry, message in bad:
+            with self.subTest(message), self.assertRaisesMessage(ReviewError, message):
+                services.tambah_anotasi(pengajuan, self.survey_bc, 'sgi', 'x', geometri=json.dumps(geometry))
+        self.client.force_login(self.survey_bc)
+        made = self.client.post(reverse('areakerja:anotasi_tambah', args=[pengajuan.pk]),
+                                {'departemen': 'sgi', 'geometri': garis, 'teks': 'Lewat halaman'}).json()
+        self.assertEqual((made['bentuk'], made['ukuran'], made['geom']['type']), ('garis', '111 m', 'LineString'))
+
+    def test_cctv_around_the_areas(self):
+        from cctv.models import Cctv, CctvCoverage
+        pengajuan = self.fill(services.request_for(self.mitra_site, self.mitra), self.mitra, pit=[square(*CAMERA)])
+        own = Cctv.objects.create(no_cctv='LMO-PM-1', nama='A', site=self.site, perusahaan=self.pama, jenis='fixed',
+                                  posisi=Point(*CAMERA, srid=4326))
+        CctvCoverage.objects.create(cctv=own, minggu=W45, geom=MultiPolygon(square(*CAMERA, size=0.0005), srid=4326))
+        Cctv.objects.create(no_cctv='LMO-BC-1', nama='B', site=self.site, perusahaan=self.bc, jenis='fixed',
+                            posisi=Point(CAMERA[0] + 0.001, CAMERA[1], srid=4326), kondisi='repair')
+        Cctv.objects.create(no_cctv='SMO-PM-1', nama='Jauh', site=self.site, perusahaan=self.pama, jenis='fixed',
+                            posisi=Point(CAMERA[0] + 0.05, CAMERA[1], srid=4326))
+        self.client.force_login(self.survey_bc)
+        data = self.client.get(reverse('areakerja:cctv_sekitar', args=[pengajuan.pk])).json()
+        titik = {f['properties']['no']: f['properties'] for f in data['titik']['features']}
+        self.assertEqual(set(titik), {'LMO-PM-1', 'LMO-BC-1'})  # the far one is left out
+        self.assertEqual((titik['LMO-PM-1']['milik'], titik['LMO-BC-1']['milik']), (True, False))
+        self.assertEqual(titik['LMO-BC-1']['kelompok'], 'mati')
+        self.assertEqual([f['properties']['no'] for f in data['coverage']['features']], ['LMO-PM-1'])
 
     def test_list_filters_keep_across_weeks(self):
         self.client.force_login(self.survey_bc)
@@ -260,7 +380,7 @@ class CoverageTests(TestCase):
                 services.save_slot(pengajuan, self.user, jenis, 'tidak_ada')
             services.ajukan(pengajuan, self.user)
             if approve:
-                services.verifikasi(pengajuan, self.user, aksi='approve')
+                setujui_semua(pengajuan, self.user)
         return pengajuan
 
     def tutup(self):
@@ -333,7 +453,7 @@ class CoverageTests(TestCase):
 
         late = timezone.make_aware(datetime.datetime(2026, 11, 11, 9, 0))
         with mock.patch('areakerja.services.timezone.now', return_value=late), self.committed():
-            services.verifikasi(pengajuan, self.user, aksi='approve')  # locks it right away
+            setujui_semua(pengajuan, self.user)  # the third approval locks it right away
         snap.refresh_from_db()
         self.assertEqual((snap.status, snap.minggu_area, snap.catatan), ('terkunci', W45, 'Approved terlambat'))
         self.assertAlmostEqual(snap.hasil.get(mode='milik', jenis='pit').persen_tercover, 100.0, delta=0.5)

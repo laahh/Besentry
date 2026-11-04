@@ -48,27 +48,41 @@ export function addAreaKerjaLayer(map, { url }) {
     .catch(() => null);
 }
 
-// items: [{ label, color, type: 'area' | 'fill' | 'line' | 'dashed' | 'dot' }] or { heading } for a small title.
+// items: [{ label, color, type: 'area' | 'fill' | 'line' | 'dashed' | 'dot', layers?, onToggle? }] or { heading }
+// for a small title; rows with layers / onToggle get a checkbox.
 // Place it top-right: the bottom corners hold the attribution.
 export class MapLegend {
   constructor(items) {
     this.items = items;
   }
 
-  onAdd() {
+  onAdd(map) {
     this.container = document.createElement('div');
     this.container.className = 'maplibregl-ctrl peta-legend';
-    for (const { label, color, type = 'fill', heading } of this.items) {
+    for (const { label, color, type = 'fill', heading, layers, onToggle } of this.items) {
       if (heading) {
         const title = document.createElement('strong');
         title.textContent = heading;
         this.container.append(title);
         continue;
       }
-      const row = document.createElement('div');
+      const switchable = Boolean(layers || onToggle);
+      const row = document.createElement(switchable ? 'label' : 'div');
       const swatch = document.createElement('span');
       swatch.className = `peta-legend-${type}`;
       swatch.style.setProperty('--warna', color);
+      if (switchable) {
+        // A row with `layers` (layer ids) or `onToggle(visible)` switches them on and off.
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.checked = true;
+        box.addEventListener('change', () => {
+          const visibility = box.checked ? 'visible' : 'none';
+          (layers || []).forEach((id) => { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visibility); });
+          onToggle?.(box.checked);
+        });
+        row.append(box);
+      }
       row.append(swatch, label);
       this.container.append(row);
     }

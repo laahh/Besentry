@@ -1,4 +1,4 @@
-"""Work areas: the weekly list per Mitra Site, and the request page (Pengajuan / Survey BC / Sah & berlaku)."""
+"""Work areas: the weekly list per Mitra Site, and the request page (Pengajuan / Verifikasi BC / Sah & berlaku)."""
 
 import datetime
 import json
@@ -7,26 +7,31 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from cctv.access import get_scope
 from cctv.coverage import GeometryError, ReviewError, this_monday
+from cctv.models import Cctv
+from cctv.snapshot import boundaries
 from orthophoto.models import Orthophoto
 
 from . import access, kalkulasi, services
-from .forms import AjukanForm, SlotForm, VerifikasiForm
+from .forms import AjukanForm, AnotasiForm, SlotForm, VerifikasiForm
 from .models import (
-    AreaKerja, CoverageLive, JenisArea, MitraSite, PengajuanAreaKerja, SnapshotCoverage, SnapshotCoverageJenis,
+    AreaKerja, CoverageLive, Departemen, JenisArea, MitraSite, PengajuanAreaKerja, SnapshotCoverage,
+    SnapshotCoverageJenis,
 )
 
 Status = PengajuanAreaKerja.Status
 WARNA = {'pit': '9C6B3C', 'hauling': 'D9822B', 'infra_tambang': '2F9E5B', 'infra_non_tambang': '4C7DBF'}
-TABS = (('pengajuan', 'Pengajuan area kerja'), ('sgi', 'Verifikasi Survey BC'), ('selesai', 'Sah & berlaku'))
-TABS_GABUNG = (('pengajuan', 'Upload & validasi Survey BC'), ('selesai', 'Sah & berlaku'))
+TABS = (('pengajuan', 'Pengajuan area kerja'), ('sgi', 'Verifikasi BC'), ('selesai', 'Sah & berlaku'))
+# PT Berau Coal: Survey BC uploads; the same Verifikasi BC follows.
+TABS_GABUNG = (('pengajuan', 'Upload area kerja Survey BC'), ('sgi', 'Verifikasi BC'), ('selesai', 'Sah & berlaku'))
 TAHAP = {Status.DRAFT: 'pengajuan', Status.RETURN_MITRA: 'pengajuan', Status.MENUNGGU_SGI: 'sgi', Status.APPROVED: 'selesai'}
 
 
@@ -153,7 +158,9 @@ def page(request, pk):
     keys = [key for key, _ in tabs]
     tahap = TAHAP[pengajuan.status]
     tahap = tahap if tahap in keys else 'pengajuan'
-    tab = request.GET.get('tab') if request.GET.get('tab') in keys else tahap
+    # Once Approved only Sah & berlaku opens: the earlier steps are done and stay closed.
+    selesai = pengajuan.status == Status.APPROVED
+    tab = request.GET.get('tab') if request.GET.get('tab') in keys and not selesai else tahap
     reached = keys.index(tahap)
     lalu = services.area_berlaku(pengajuan.mitra_site, pengajuan.minggu - datetime.timedelta(days=7))
     slots = []
@@ -162,15 +169,22 @@ def page(request, pk):
         lama = lalu['pengajuan'].slot(jenis.value) if lalu['pengajuan'] else None
         slots.append({'jenis': jenis, 'area': area, 'lalu': lama, 'warna': WARNA[jenis.value]})
     can_edit = services.editable(pengajuan) and access.can_upload(scope, pengajuan.mitra_site)
+    menunggu = pengajuan.status == Status.MENUNGGU_SGI
+    mine = access.departemen(scope)
+    done = {v.departemen: v for v in pengajuan.verifikasi.select_related('user')}
+    verifikasi = [{'departemen': dept, 'hasil': done.get(dept.value), 'bisa': menunggu and dept.value in mine}
+                  for dept in Departemen]
+    anotasi = list(pengajuan.anotasi.select_related('user', 'selesai_oleh'))
     peta = {
         'jenis': [{'id': s['jenis'].value, 'label': s['jenis'].label, 'warna': '#' + s['warna'],
                    'geom': _feature(s['area'].geom if s['area'] else None),
                    'lalu': _feature(s['lalu'].geom if s['lalu'] else None)} for s in slots],
         'extent': _extent(*[s['area'].geom for s in slots if s['area']], *[s['lalu'].geom for s in slots if s['lalu']]),
+        'anotasi': [_anotasi_json(a, request.user) for a in anotasi],
     }
     return render(request, 'areakerja/pengajuan.html', {
         'p': pengajuan, 'tab': tab,
-        'tabs': [(key, label, i < reached, i == reached) for i, (key, label) in enumerate(tabs)],
+        'tabs': [(key, label, i < reached, i == reached, not selesai or key == tahap) for i, (key, label) in enumerate(tabs)],
         'tab_terbuka': keys[:reached + 1],
         'slots': slots, 'lalu': lalu, 'peta': peta,
         'total_ha': round(sum(s['area'].luas_ha or 0 for s in slots if s['area']), 2),
@@ -178,8 +192,10 @@ def page(request, pk):
         'can': {
             'edit': can_edit,
             'ajukan': can_edit and pengajuan.status in (Status.DRAFT, Status.RETURN_MITRA),
-            'verify': access.can_verify(scope) and pengajuan.status == Status.MENUNGGU_SGI,
+            'verify': bool(mine) and menunggu,
+            'anotasi': bool(mine) and menunggu,
         },
+        'verifikasi': verifikasi, 'departemen_saya': mine, 'departemen_json': json.dumps(mine), 'anotasi': anotasi,
         'sumber_choices': AreaKerja.Sumber.choices,
         'riwayat': pengajuan.riwayat.select_related('user'),
     })
@@ -226,20 +242,122 @@ def ajukan(request, pk):
 @login_required
 @require_POST
 def verifikasi(request, pk):
+    """One department's Disetujui, or sending the request back to the uploader."""
     scope, pengajuan = _get(request, pk)
-    if not access.can_verify(scope):
-        raise PermissionDenied
     form = VerifikasiForm(request.POST)
     if not form.is_valid():
         messages.error(request, 'Data verifikasi tidak valid.')
         return redirect(_url(pengajuan, 'sgi'))
+    data = form.cleaned_data
+    if data['departemen'] not in access.departemen(scope):
+        raise PermissionDenied
     try:
-        services.verifikasi(pengajuan, request.user, aksi=form.cleaned_data['aksi'], catatan=form.cleaned_data['catatan'])
+        services.verifikasi(pengajuan, request.user, departemen=data['departemen'], aksi=data['aksi'],
+                            catatan=data['catatan'])
     except ReviewError as exc:
         messages.error(request, exc.message)
         return redirect(_url(pengajuan, 'sgi'))
-    messages.success(request, f'Area kerja {pengajuan}: {pengajuan.get_status_display()}.')
+    label = Departemen(data['departemen']).label
+    if pengajuan.status == Status.APPROVED:
+        messages.success(request, f'{label} menyetujui. SGI, Mining, dan Safety BC lengkap: area kerja Approved.')
+    elif pengajuan.status == Status.MENUNGGU_SGI:
+        messages.success(request, f'{label} menyetujui. Menunggu departemen lain.')
+    else:
+        messages.success(request, f'Area kerja {pengajuan}: {pengajuan.status_label}.')
     return redirect(_url(pengajuan))
+
+
+def _anotasi_json(anotasi, user):
+    return {
+        'id': anotasi.pk, 'lon': anotasi.posisi.x, 'lat': anotasi.posisi.y, 'teks': anotasi.teks,
+        'bentuk': anotasi.bentuk, 'bentuk_label': anotasi.get_bentuk_display(), 'ukuran': anotasi.ukuran,
+        'geom': json.loads(anotasi.geom.geojson) if anotasi.geom else None,
+        'departemen': anotasi.get_departemen_display(), 'kode': anotasi.departemen,
+        'oleh': (anotasi.user.get_full_name() or anotasi.user.get_username()) if anotasi.user else '-',
+        'waktu': timezone.localtime(anotasi.dibuat).strftime('%d %b %H:%M'),
+        'selesai': anotasi.selesai, 'milik_saya': anotasi.user_id == user.pk,
+    }
+
+
+@login_required
+@require_POST
+def anotasi_tambah(request, pk):
+    """A reviewer adds a note on the map, as a point, a line or an area: JSON in, JSON out."""
+    scope, pengajuan = _get(request, pk)
+    form = AnotasiForm(request.POST)
+    if not form.is_valid():
+        return JsonResponse({'error': 'Data anotasi tidak valid.'}, status=400)
+    data = form.cleaned_data
+    if data['departemen'] not in access.departemen(scope):
+        raise PermissionDenied
+    try:
+        anotasi = services.tambah_anotasi(pengajuan, request.user, data['departemen'], data['teks'],
+                                          lon=data['lon'], lat=data['lat'], geometri=data['geometri'])
+    except ReviewError as exc:
+        return JsonResponse({'error': exc.message}, status=400)
+    return JsonResponse(_anotasi_json(anotasi, request.user))
+
+
+@login_required
+@require_POST
+def anotasi_hapus(request, pk, anotasi_pk):
+    _, pengajuan = _get(request, pk)
+    anotasi = get_object_or_404(pengajuan.anotasi, pk=anotasi_pk)
+    try:
+        services.hapus_anotasi(anotasi, request.user)
+    except ReviewError as exc:
+        return JsonResponse({'error': exc.message}, status=400)
+    return JsonResponse({'ok': True})
+
+
+@login_required
+@require_POST
+def anotasi_tandai(request, pk, anotasi_pk):
+    """The uploader ticks a reviewer's note as solved (or unticks it)."""
+    scope, pengajuan = _get(request, pk)
+    if not access.can_upload(scope, pengajuan.mitra_site):
+        raise PermissionDenied
+    anotasi = get_object_or_404(pengajuan.anotasi, pk=anotasi_pk)
+    try:
+        services.tandai_anotasi(anotasi, request.user, request.POST.get('selesai') == '1')
+    except ReviewError as exc:
+        messages.error(request, exc.message)
+    return redirect(_url(pengajuan, 'pengajuan'))
+
+
+@login_required
+def cctv_sekitar(request, pk):
+    """CCTV around the request's areas, for the verification map: {titik, coverage} GeoJSON.
+    `milik` marks the Mitra Site's own cameras (the official mode); the rest are other companies'."""
+    _, pengajuan = _get(request, pk)
+    areas = [area.geom for area in pengajuan.area.all() if area.geom]
+    empty = {'type': 'FeatureCollection', 'features': []}
+    if not areas:
+        return JsonResponse({'titik': empty, 'coverage': empty})
+    window = _union(areas).envelope.buffer(0.005)  # ~550 m around, for cameras looking in from outside
+    boundary_of = boundaries()
+    titik, coverage = [], []
+    rows = Cctv.objects.filter(Q(posisi__intersects=window) | Q(pk__in=[pk_ for pk_, g in boundary_of.items() if g and g.intersects(window)]))
+    for cctv in rows.only('pk', 'no_cctv', 'nama', 'site_id', 'perusahaan_id', 'status', 'kondisi', 'posisi'):
+        props = {
+            'no': cctv.no_cctv, 'nama': cctv.nama, 'kondisi': cctv.kondisi or '',
+            'kelompok': kalkulasi.kelompok(cctv.status, cctv.kondisi) or 'dicabut',
+            'milik': (cctv.site_id, cctv.perusahaan_id) == (pengajuan.mitra_site.site_id, pengajuan.mitra_site.perusahaan_id),
+        }
+        if cctv.posisi:
+            titik.append({'type': 'Feature', 'geometry': json.loads(cctv.posisi.geojson), 'properties': props})
+        geom = boundary_of.get(cctv.pk)
+        if geom is not None and props['kelompok'] != 'dicabut':
+            coverage.append({'type': 'Feature', 'geometry': json.loads(geom.geojson), 'properties': props})
+    return JsonResponse({'titik': {'type': 'FeatureCollection', 'features': titik},
+                         'coverage': {'type': 'FeatureCollection', 'features': coverage}})
+
+
+def _union(geoms):
+    union = geoms[0]
+    for geom in geoms[1:]:
+        union = union.union(geom)
+    return union
 
 
 @login_required

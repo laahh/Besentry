@@ -1,9 +1,12 @@
-"""Weekly work areas: Mitra -> Survey BC -> Approved, and which area counts for a week.
+"""Weekly work areas: uploader -> Verifikasi BC (SGI, Mining, Safety BC) -> Approved, and which area
+counts for a week. The uploader is the Mitra, or Survey BC for PT Berau Coal's own areas.
 
     request_for(mitra_site)      this week's request (created as a Draft when there is none)
     save_slot()                  one kind: upload a zip SHP, reuse last week's area, or none
-    ajukan()                     Mitra: -> Waiting Survey BC. PT Berau Coal (Survey BC): Approved at once
-    verifikasi()                 Survey BC: Approved, or Return to Mitra with a note
+    ajukan()                     -> Waiting Verifikasi BC; earlier approvals are cleared
+    verifikasi()                 one department: Disetujui (Approved once all three have), or back to
+                                 the uploader with a note
+    tambah_anotasi() ...         reviewers' points with notes on the map; the uploader ticks them solved
     area_berlaku(mitra_site, w)  the area that counts for week w: that week's Approved request,
                                  else the last Approved one before it (a fallback, with a note)
 
@@ -11,15 +14,19 @@ Every step sends `area_kerja_berubah` (see signals.py) so notifications can hook
 """
 
 import datetime
+import json
 
-from django.contrib.gis.geos import GEOSException, MultiPolygon, Polygon
+from django.contrib.gis.geos import GEOSException, GEOSGeometry, LineString, MultiPolygon, Point, Polygon
 from django.db import transaction
 from django.utils import timezone
 
 from cctv.coverage import GeometryError, ReviewError, UTM_50N, _batas_site, read_shp_zip, this_monday
 from cctv.models import minggu_label
 
-from .models import AreaKerja, JenisArea, MitraSite, PengajuanAreaKerja, RiwayatAreaKerja
+from .models import (
+    AnotasiAreaKerja, AreaKerja, Departemen, JenisArea, MitraSite, PengajuanAreaKerja, RiwayatAreaKerja,
+    VerifikasiAreaKerja,
+)
 from .signals import area_kerja_berubah
 
 Status = PengajuanAreaKerja.Status
@@ -104,10 +111,8 @@ def request_for(mitra_site, user):
 
 
 def editable(pengajuan):
-    """Mitra fills Draft / Return to Mitra; PT Berau Coal's own areas stay editable all their week."""
-    if pengajuan.status in (Status.DRAFT, Status.RETURN_MITRA):
-        return True
-    return pengajuan.gabung and pengajuan.status == Status.APPROVED and pengajuan.minggu == this_monday()
+    """The uploader fills a Draft, or a request sent back. Once Approved nothing changes."""
+    return pengajuan.status in (Status.DRAFT, Status.RETURN_MITRA)
 
 
 @transaction.atomic
@@ -133,18 +138,10 @@ def save_slot(pengajuan, user, jenis, sumber, upload=None):
     elif sumber != Sumber.TIDAK_ADA:
         raise ReviewError('Pilih sumber area.')
 
-    existing = pengajuan.slot(jenis)
-    if existing and pengajuan.status == Status.APPROVED:  # PT Berau Coal editing an area in force
-        _log(pengajuan, Aksi.DIUBAH, user, JenisArea(jenis).label, sebelum={
-            'jenis': jenis, 'sumber': existing.sumber, 'luas_ha': existing.luas_ha,
-            'geom': existing.geom_upload.geojson if existing.geom_upload else None,
-        })
     area, _ = AreaKerja.objects.update_or_create(pengajuan=pengajuan, jenis=jenis, defaults=values)
     pengajuan = PengajuanAreaKerja.objects.prefetch_related('area').get(pk=pengajuan.pk)
     clip_by_priority(pengajuan)
     area.refresh_from_db()
-    if pengajuan.status == Status.APPROVED:
-        _signal(pengajuan, user, Aksi.DIUBAH)
     return area
 
 
@@ -159,16 +156,9 @@ def ajukan(pengajuan, user, catatan=''):
     if pengajuan.status not in (Status.DRAFT, Status.RETURN_MITRA):
         raise ReviewError(f'Pengajuan ini sedang {pengajuan.get_status_display()}.')
     _complete(pengajuan)
-    now = timezone.now()
     pengajuan.catatan = catatan.strip()
-    pengajuan.diajukan_oleh, pengajuan.diajukan_pada = user, now
-    if pengajuan.gabung:  # Survey BC uploads PT Berau Coal's own areas and validates them itself
-        pengajuan.status = Status.APPROVED
-        pengajuan.disetujui_oleh, pengajuan.disetujui_pada = user, now
-        pengajuan.save()
-        _log(pengajuan, Aksi.DISETUJUI, user, 'Area PT Berau Coal, divalidasi Survey BC')
-        _signal(pengajuan, user, Aksi.DISETUJUI)
-        return pengajuan
+    pengajuan.diajukan_oleh, pengajuan.diajukan_pada = user, timezone.now()
+    VerifikasiAreaKerja.objects.filter(pengajuan=pengajuan).delete()  # a new upload is verified afresh
     pengajuan.status = Status.MENUNGGU_SGI
     pengajuan.save()
     _log(pengajuan, Aksi.DIAJUKAN, user, pengajuan.catatan)
@@ -177,27 +167,115 @@ def ajukan(pengajuan, user, catatan=''):
 
 
 @transaction.atomic
-def verifikasi(pengajuan, user, *, aksi, catatan=''):
-    """Survey BC: aksi 'approve' or 'return' (a note is required)."""
+def verifikasi(pengajuan, user, *, departemen, aksi, catatan=''):
+    """One department of Verifikasi BC: aksi 'setujui' (Disetujui; Approved once SGI, Mining and
+    Safety BC all have) or 'kembalikan' (back to the uploader, a note is required)."""
     if pengajuan.status != Status.MENUNGGU_SGI:
-        raise ReviewError(f'Pengajuan ini sedang {pengajuan.get_status_display()}, bukan menunggu verifikasi.')
+        raise ReviewError(f'Pengajuan ini sedang {pengajuan.status_label}, bukan menunggu verifikasi.')
+    if departemen not in Departemen.values:
+        raise ReviewError('Departemen tidak dikenal.')
+    label = Departemen(departemen).label
     catatan = catatan.strip()
-    if aksi == 'return':
+    if aksi == 'kembalikan':
         if not catatan:
             raise ReviewError('Catatan wajib diisi jika dikembalikan.')
         pengajuan.status = Status.RETURN_MITRA
         pengajuan.save()
-        _log(pengajuan, Aksi.DIKEMBALIKAN, user, catatan)
+        _log(pengajuan, Aksi.DIKEMBALIKAN, user, f'{label}: {catatan}')
         _signal(pengajuan, user, Aksi.DIKEMBALIKAN)
         return pengajuan
-    if aksi != 'approve':
+    if aksi != 'setujui':
         raise ReviewError('Pilih tindakan verifikasi.')
-    pengajuan.status = Status.APPROVED
-    pengajuan.disetujui_oleh, pengajuan.disetujui_pada = user, timezone.now()
-    pengajuan.save()
-    _log(pengajuan, Aksi.DISETUJUI, user, catatan)
-    _signal(pengajuan, user, Aksi.DISETUJUI)
+    _, created = VerifikasiAreaKerja.objects.get_or_create(pengajuan=pengajuan, departemen=departemen,
+                                                           defaults={'user': user})
+    if not created:
+        raise ReviewError(f'{label} sudah menyetujui pengajuan ini.')
+    _log(pengajuan, Aksi.VERIFIKASI, user, label + (f': {catatan}' if catatan else ''))
+    done = set(pengajuan.verifikasi.values_list('departemen', flat=True))
+    if done >= set(Departemen.values):
+        pengajuan.status = Status.APPROVED
+        pengajuan.disetujui_oleh, pengajuan.disetujui_pada = user, timezone.now()
+        pengajuan.save()
+        _log(pengajuan, Aksi.DISETUJUI, None, 'SGI, Mining, dan Safety BC menyetujui')
+        _signal(pengajuan, user, Aksi.DISETUJUI)
     return pengajuan
+
+
+# --- Map notes ----------------------------------------------------------------------------------
+
+ANOTASI_MAX_TITIK = 500  # vertices of a drawn line or area
+
+
+def _bentuk_anotasi(geometri):
+    """GeoJSON of a line or an area -> (bentuk, geometry, anchor point, length m, area ha)."""
+    try:  # too few points do not even make a geometry: say so before GEOS refuses it
+        raw = json.loads(geometri)
+        if raw.get('type') == 'LineString' and len(raw.get('coordinates') or []) < 2:
+            raise ReviewError('Garis anotasi perlu minimal 2 titik.')
+    except (ValueError, AttributeError) as exc:
+        raise ReviewError('Bentuk anotasi tidak terbaca.') from exc
+    try:
+        geom = GEOSGeometry(geometri, srid=4326)
+    except (GEOSException, ValueError, TypeError) as exc:
+        raise ReviewError('Bentuk anotasi tidak terbaca.') from exc
+    if isinstance(geom, LineString):
+        if geom.num_points < 2:
+            raise ReviewError('Garis anotasi perlu minimal 2 titik.')
+        bentuk, anchor = AnotasiAreaKerja.Bentuk.GARIS, geom.interpolate_normalized(0.5)
+    elif isinstance(geom, Polygon):
+        if geom.num_points < 4:  # a closed ring repeats its first vertex
+            raise ReviewError('Area anotasi perlu minimal 3 titik.')
+        if not geom.valid:
+            raise ReviewError('Area anotasi tidak valid: garisnya saling memotong.')
+        bentuk, anchor = AnotasiAreaKerja.Bentuk.AREA, geom.point_on_surface
+    else:
+        raise ReviewError('Anotasi harus berupa titik, garis, atau area.')
+    if geom.num_points > ANOTASI_MAX_TITIK:
+        raise ReviewError(f'Bentuk anotasi terlalu rinci (lebih dari {ANOTASI_MAX_TITIK} titik).')
+    local = geom.transform(UTM_50N, clone=True)
+    panjang = round(local.length, 1) if bentuk == AnotasiAreaKerja.Bentuk.GARIS else None
+    luas = round(local.area / 10_000, 4) if bentuk == AnotasiAreaKerja.Bentuk.AREA else None
+    return bentuk, geom, anchor, panjang, luas
+
+
+def tambah_anotasi(pengajuan, user, departemen, teks, *, lon=None, lat=None, geometri=None):
+    """A reviewer's note on the map while the request waits for Verifikasi BC: a point (lon, lat),
+    or a line / an area (`geometri`, GeoJSON). Lines get their length, areas their size."""
+    if pengajuan.status != Status.MENUNGGU_SGI:
+        raise ReviewError('Anotasi hanya bisa ditambahkan saat Verifikasi BC.')
+    teks = (teks or '').strip()
+    if not teks:
+        raise ReviewError('Tulis catatan anotasinya.')
+    values = {'bentuk': AnotasiAreaKerja.Bentuk.TITIK}
+    if geometri:
+        bentuk, geom, posisi, panjang, luas = _bentuk_anotasi(geometri)
+        values.update(bentuk=bentuk, geom=geom, panjang_m=panjang, luas_ha=luas)
+    else:
+        try:
+            posisi = Point(float(lon), float(lat), srid=4326)
+        except (TypeError, ValueError) as exc:
+            raise ReviewError('Titik anotasi tidak valid.') from exc
+    batas, nama_batas = _batas_site()
+    if not batas.contains(values.get('geom') or posisi):
+        raise ReviewError(f'Anotasi berada di luar batas ({nama_batas}).')
+    return AnotasiAreaKerja.objects.create(pengajuan=pengajuan, departemen=departemen, user=user,
+                                           posisi=posisi, teks=teks[:1000], **values)
+
+
+def hapus_anotasi(anotasi, user):
+    """Its author takes it back, while Verifikasi BC is still going on."""
+    if anotasi.user_id != user.pk or anotasi.pengajuan.status != Status.MENUNGGU_SGI:
+        raise ReviewError('Anotasi ini tidak bisa dihapus.')
+    anotasi.delete()
+
+
+def tandai_anotasi(anotasi, user, selesai):
+    """The uploader ticks a note solved (or not) while fixing the request."""
+    if not editable(anotasi.pengajuan):
+        raise ReviewError('Anotasi ditandai selesai saat memperbaiki pengajuan.')
+    anotasi.selesai_oleh, anotasi.selesai_pada = (user, timezone.now()) if selesai else (None, None)
+    anotasi.save(update_fields=['selesai_oleh', 'selesai_pada'])
+    return anotasi
 
 
 # --- Which area counts --------------------------------------------------------------------------
