@@ -402,3 +402,80 @@
   border-radius: 2px;
   vertical-align: baseline;
 }
+
+/* Work-area list: every action button as wide as the widest ("Ajukan area kerja"). The theme pads
+   table cells 32px on each side, which would squeeze the button onto two lines. */
+.table th.area-aksi,
+.table td.area-aksi {
+  width: 168px;
+  min-width: 168px;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.area-aksi .btn {
+  white-space: nowrap;
+}
+
+/* Week picker: whole rows are clickable weeks. */
+.kalender-week th,
+.kalender-week td {
+  padding: 6px 4px;
+  text-align: center;
+  font-size: 13px;
+}
+
+.kalender-week tbody tr {
+  cursor: pointer;
+}
+
+.kalender-week tbody tr:hover td {
+  background: #eef6ea;
+}
+
+.kalender-week tbody tr.dilihat td {
+  background: #1f7a3a;
+  color: #fff;
+}
+
+.kalender-week tbody tr.berjalan td {
+  font-weight: 700;
+}
+
+.kalender-week tbody tr.dilihat td.text-muted {
+  color: #cfe5d5 !important;
+}
+
+/* A short explanation in a soft green box with an icon, next to filters or forms. */
+.info-blok {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid #d4e8cc;
+  border-radius: 6px;
+  background: #eef6ea;
+  color: #134e2b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.info-blok svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  color: #1f7a3a;
+}
+
+/* A one-line note above a page's cards. */
+.info-blok-tipis {
+  align-items: center;
+  padding: 6px 12px;
+}
+
+.info-blok-tipis svg {
+  width: 14px;
+  height: 14px;
+  margin-top: 0;
+}

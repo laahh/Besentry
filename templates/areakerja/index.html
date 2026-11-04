@@ -8,9 +8,13 @@
 <li class="breadcrumb-item active">Area Kerja</li>
 {% endblock %}
 {% block page_actions %}
-<a class="btn btn-light btn-sm" href="?minggu={{ sebelum|date:'Y-m-d' }}{% if site_dipilih %}&site={{ site_dipilih }}{% endif %}"><i data-feather="chevron-left"></i></a>
-<span class="badge badge-light text-dark f-14">{{ minggu|date:"d M" }} – {{ akhir|date:"d M Y" }}{% if minggu == minggu_ini %} · week berjalan{% endif %}</span>
-<a class="btn btn-light btn-sm" href="?minggu={{ sesudah|date:'Y-m-d' }}{% if site_dipilih %}&site={{ site_dipilih }}{% endif %}"><i data-feather="chevron-right"></i></a>
+<div class="d-flex flex-nowrap align-items-center justify-content-sm-end gap-1">
+  <a class="btn btn-light btn-sm" href="?minggu={{ sebelum|date:'Y-m-d' }}{% if filter_qs %}&{{ filter_qs }}{% endif %}" title="Week sebelumnya"><i data-feather="chevron-left"></i></a>
+  <span class="badge badge-light text-dark f-14 text-nowrap">{{ minggu|date:"d M" }} – {{ akhir|date:"d M Y" }}{% if minggu == minggu_ini %} · week berjalan{% endif %}</span>
+  <a class="btn btn-light btn-sm" href="?minggu={{ sesudah|date:'Y-m-d' }}{% if filter_qs %}&{{ filter_qs }}{% endif %}" title="Week berikutnya"><i data-feather="chevron-right"></i></a>
+  <button class="btn btn-light btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#modal-week" title="Pilih week dari kalender"><i data-feather="calendar"></i></button>
+  {% if minggu != minggu_ini %}<a class="btn btn-outline-primary btn-sm text-nowrap" href="?{{ filter_qs }}">Week berjalan</a>{% endif %}
+</div>
 {% endblock %}
 
 {% block content %}
@@ -23,25 +27,44 @@
   {% include "dashboard/partials/stat_card.html" with color="secondary" icon="rotate-ccw" label="Memakai area minggu lalu" value=counts.fallback %}
 </div>
 
+<div class="info-blok info-blok-tipis mb-3">
+  <i data-feather="info"></i>
+  <span>Area kerja diupload setiap Senin untuk week berjalan dan berlaku setelah diverifikasi Survey BC. Tanpa upload, week ini memakai area Approved terakhir dengan catatan.</span>
+</div>
+
+<!-- Filters -->
 <div class="card">
   <div class="card-body">
-    <form method="get" class="row g-2 align-items-end mb-3">
+    <form method="get" class="row g-2 align-items-end">
       <input type="hidden" name="minggu" value="{{ minggu|date:'Y-m-d' }}">
       <div class="col-lg-2 col-md-3 col-6">
         <label class="form-label f-12 mb-1" for="f-site">Site</label>
-        <select class="form-select form-select-sm" name="site" id="f-site" onchange="this.form.submit()">
+        <select class="form-select form-select-sm" name="site" id="f-site">
           <option value="">Semua</option>
           {% for site in sites %}<option value="{{ site.pk }}"{% if site_dipilih == site.pk|stringformat:"d" %} selected{% endif %}>{{ site.kode }}</option>{% endfor %}
         </select>
       </div>
-      <div class="col">
-        <p class="f-12 text-muted mb-0">Area kerja diupload setiap Senin untuk week berjalan dan berlaku setelah diverifikasi Survey BC. Tanpa upload, week ini memakai area Approved terakhir dengan catatan.</p>
+      <div class="col-lg-4 col-md-5 col-6">
+        <label class="form-label f-12 mb-1" for="f-perusahaan">Perusahaan</label>
+        <select class="form-select form-select-sm" name="perusahaan" id="f-perusahaan">
+          <option value="">Semua</option>
+          {% for p in perusahaan_list %}<option value="{{ p.pk }}"{% if perusahaan_dipilih == p.pk|stringformat:"d" %} selected{% endif %}>{{ p.nama }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-lg-4 col-12 d-flex gap-2">
+        <button class="btn btn-primary btn-sm" type="submit"><i data-feather="search" class="me-1"></i>Terapkan</button>
+        {% if filter_qs %}<a class="btn btn-light btn-sm" href="?minggu={{ minggu|date:'Y-m-d' }}">Reset</a>{% endif %}
       </div>
     </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
     <div class="table-responsive">
       <table class="table table-sm align-middle mb-0">
         <thead>
-          <tr><th>Site</th><th>Perusahaan</th><th>Pengajuan {{ minggu|date:"\WW o" }}</th><th>Area yang berlaku</th><th class="text-end"></th></tr>
+          <tr><th>Site</th><th>Perusahaan</th><th>Pengajuan {{ minggu|date:"\WW o" }}</th><th>Area yang berlaku</th><th class="area-aksi"></th></tr>
         </thead>
         <tbody>
           {% for row in rows %}
@@ -58,12 +81,12 @@
               {% if row.berlaku.catatan %}<span class="text-warning ms-1">{{ row.berlaku.catatan }}</span>{% endif %}
               {% else %}<span class="text-muted">{{ row.berlaku.catatan }}</span>{% endif %}
             </td>
-            <td class="text-end">
+            <td class="area-aksi">
               {% if row.can_upload and not row.pengajuan %}
-              <form method="post" action="{% url 'areakerja:buka' row.mitra_site.pk %}" class="d-inline">{% csrf_token %}
-                <button class="btn btn-primary btn-xs" type="submit">{% if row.mitra_site.perusahaan.is_berau_coal %}Upload area BC{% else %}Ajukan area kerja{% endif %}</button>
+              <form method="post" action="{% url 'areakerja:buka' row.mitra_site.pk %}">{% csrf_token %}
+                <button class="btn btn-primary btn-xs w-100" type="submit">{% if row.mitra_site.perusahaan.is_berau_coal %}Upload area BC{% else %}Ajukan area kerja{% endif %}</button>
               </form>
-              {% elif row.pengajuan %}<a class="btn btn-light btn-xs" href="{% url 'areakerja:pengajuan' row.pengajuan.pk %}">Buka</a>{% endif %}
+              {% elif row.pengajuan %}<a class="btn btn-light btn-xs w-100" href="{% url 'areakerja:pengajuan' row.pengajuan.pk %}">Buka</a>{% endif %}
             </td>
           </tr>
           {% empty %}
@@ -74,4 +97,72 @@
     </div>
   </div>
 </div>
+
+<!-- Week picker: a month calendar, one row per week (Monday to Sunday) -->
+<div class="modal fade" id="modal-week" tabindex="-1" aria-labelledby="modal-week-judul" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-week-judul">Pilih week</h5>
+        <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Tutup"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <button class="btn btn-light btn-sm" type="button" id="kal-prev" aria-label="Bulan sebelumnya"><i data-feather="chevron-left"></i></button>
+          <span class="f-w-600" id="kal-bulan"></span>
+          <button class="btn btn-light btn-sm" type="button" id="kal-next" aria-label="Bulan berikutnya"><i data-feather="chevron-right"></i></button>
+        </div>
+        <table class="table table-sm kalender-week mb-2">
+          <thead><tr><th>Week</th><th>Sen</th><th>Sel</th><th>Rab</th><th>Kam</th><th>Jum</th><th>Sab</th><th>Min</th></tr></thead>
+          <tbody id="kal-body"></tbody>
+        </table>
+        <p class="f-12 text-muted mb-0">Klik baris untuk membuka week tersebut. Hijau = week yang sedang dilihat; tebal = week berjalan.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{{ week_picker|json_script:"data-week" }}
+{% endblock %}
+
+{% block scriptcontent %}
+<script>
+  (() => {
+    const cfg = JSON.parse(document.getElementById('data-week').textContent);
+    const BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    const parse = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+    const weekNo = (monday) => {  // ISO 8601: the week holding the year's first Thursday is week 1
+      const thursday = addDays(monday, 3);
+      const firstThursday = new Date(thursday.getFullYear(), 0, 4);
+      const firstMonday = addDays(firstThursday, -((firstThursday.getDay() + 6) % 7));
+      return 1 + Math.round((monday - firstMonday) / (7 * 864e5));
+    };
+    const dilihat = cfg.dilihat, berjalan = cfg.berjalan;
+    let bulan = parse(dilihat);
+    bulan = new Date(bulan.getFullYear(), bulan.getMonth(), 1);
+    const body = document.getElementById('kal-body');
+
+    function render() {
+      document.getElementById('kal-bulan').textContent = `${BULAN[bulan.getMonth()]} ${bulan.getFullYear()}`;
+      body.replaceChildren();
+      let monday = addDays(bulan, -((bulan.getDay() + 6) % 7));
+      while (monday.getMonth() === bulan.getMonth() || addDays(monday, 6).getMonth() === bulan.getMonth()) {
+        const key = iso(monday);
+        const row = document.createElement('tr');
+        row.className = (key === dilihat ? 'dilihat ' : '') + (key === berjalan ? 'berjalan' : '');
+        row.innerHTML = `<td class="f-w-600">W${weekNo(monday)}</td>` + Array.from({ length: 7 }, (_, i) => {
+          const day = addDays(monday, i);
+          return `<td class="${day.getMonth() === bulan.getMonth() ? '' : 'text-muted'}">${day.getDate()}</td>`;
+        }).join('');
+        row.addEventListener('click', () => { window.location.search = `?minggu=${key}${cfg.filter ? '&' + cfg.filter : ''}`; });
+        body.append(row);
+        monday = addDays(monday, 7);
+      }
+    }
+    document.getElementById('kal-prev').addEventListener('click', () => { bulan = new Date(bulan.getFullYear(), bulan.getMonth() - 1, 1); render(); });
+    document.getElementById('kal-next').addEventListener('click', () => { bulan = new Date(bulan.getFullYear(), bulan.getMonth() + 1, 1); render(); });
+    render();
+  })();
+</script>
 {% endblock %}

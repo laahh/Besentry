@@ -180,3 +180,13 @@ class AreaKerjaTests(TestCase):
         self.assertEqual(self.client.post(verify, {'aksi': 'approve'}).status_code, 403)
         self.client.force_login(self.survey_bc)
         self.assertEqual(len(self.client.get(reverse('areakerja:index')).context['rows']), 3)  # Survey BC sees all
+
+    def test_list_filters_keep_across_weeks(self):
+        self.client.force_login(self.survey_bc)
+        page = self.client.get(reverse('areakerja:index'), {'perusahaan': self.bc.pk, 'minggu': '2026-11-12'})
+        self.assertEqual([r['mitra_site'] for r in page.context['rows']], [self.bc_site])
+        self.assertEqual(page.context['minggu'], W46)  # any day picks its week's Monday
+        self.assertEqual(page.context['week_picker'], {'dilihat': '2026-11-09', 'berjalan': '2026-11-02',
+                                                       'filter': f'perusahaan={self.bc.pk}'})
+        self.assertContains(page, f'?minggu=2026-11-02&perusahaan={self.bc.pk}')  # previous week, same filter
+        self.assertEqual(len(page.context['perusahaan_list']), 2)

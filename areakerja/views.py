@@ -2,6 +2,7 @@
 
 import datetime
 import json
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -52,8 +53,16 @@ def index(request):
     minggu = _week(request.GET.get('minggu'))
     semua = access.visible(scope)
     site_options = sorted({m.site for m in semua}, key=lambda s: s.kode)
+    perusahaan_options = sorted({m.perusahaan for m in semua}, key=lambda p: p.nama)
     site_dipilih = request.GET.get('site', '')
-    sites = semua.filter(site_id=site_dipilih) if site_dipilih.isdigit() else semua
+    perusahaan_dipilih = request.GET.get('perusahaan', '')
+    sites = semua
+    if site_dipilih.isdigit():
+        sites = sites.filter(site_id=site_dipilih)
+    if perusahaan_dipilih.isdigit():
+        sites = sites.filter(perusahaan_id=perusahaan_dipilih)
+    # The filters, kept when moving to another week.
+    filter_qs = urlencode({k: v for k, v in (('site', site_dipilih), ('perusahaan', perusahaan_dipilih)) if v.isdigit()})
     pengajuan = {
         p.mitra_site_id: p for p in PengajuanAreaKerja.objects.filter(minggu=minggu, mitra_site__in=sites)
     }
@@ -76,6 +85,8 @@ def index(request):
         'rows': rows, 'counts': counts, 'minggu': minggu, 'minggu_ini': this_monday(),
         'akhir': minggu + datetime.timedelta(days=6), 'sebelum': minggu - datetime.timedelta(days=7), 'sesudah': minggu + datetime.timedelta(days=7),
         'sites': site_options, 'site_dipilih': site_dipilih,
+        'perusahaan_list': perusahaan_options, 'perusahaan_dipilih': perusahaan_dipilih, 'filter_qs': filter_qs,
+        'week_picker': {'dilihat': minggu.isoformat(), 'berjalan': this_monday().isoformat(), 'filter': filter_qs},
     })
 
 
