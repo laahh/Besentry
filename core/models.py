@@ -28,6 +28,9 @@ class Site(models.Model):
 
 
 class Perusahaan(models.Model):
+    # PT Berau Coal: its CCTV changes skip Survey Mitra (Survey BC digitises and verifies at once).
+    KODE_BERAU_COAL = 'BC'
+
     nama = models.CharField(max_length=150, unique=True)
     kode = models.CharField(max_length=20, blank=True, help_text='Kode di No. CCTV, mis. BC, PM, BM.')
     sid_id = models.IntegerField('ID di SID', null=True, blank=True, unique=True,
@@ -39,6 +42,10 @@ class Perusahaan(models.Model):
 
     def __str__(self):
         return self.nama
+
+    @property
+    def is_berau_coal(self):
+        return self.kode == self.KODE_BERAU_COAL
 
 
 class Karyawan(models.Model):

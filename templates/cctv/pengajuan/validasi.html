@@ -1,0 +1,13 @@
+{# The automatic geometry checks, with the live result. Params: kirim (the button that runs them for real). #}
+<div class="card verif-card">
+  <div class="card-body">
+    <h6>Validasi geometri (otomatis)</h6>
+    <ul class="list-unstyled f-12 mb-2">
+      <li>Polygon tertutup dan tidak saling memotong</li>
+      <li>Di dalam batas site (extent orthophoto aktif)</li>
+      <li>Luas kurang dari 200 ha</li>
+      <li>Titik terjauh ≤ {{ jangkauan_m|floatformat:0 }} m dari kamera</li>
+    </ul>
+    <div class="f-12 alert alert-light py-2 mb-0" id="validasi-hasil">Dicek otomatis saat polygon berubah, dan sekali lagi saat <strong>{{ kirim }}</strong>.</div>
+  </div>
+</div>

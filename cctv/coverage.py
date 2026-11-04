@@ -5,6 +5,8 @@
                         Otherwise Waiting Survey Mitra, labelled with this week.
     save_digitasi()     Survey Mitra's boundary (drawn or SHP); kirim -> Waiting Survey BC
     review_sgi()        Survey BC: -> Waiting Safety BC (whole checklist) / Return to Survey Mitra / Return to IT
+    digitasi_sgi()      PT Berau Coal only: Survey BC draws and checks in one step (no Survey Mitra)
+                        -> Waiting Safety BC / Return to IT
     review_safety()     Safety BC: -> Approved (whole checklist) / Approved with warning / Return to IT / Return to SGI
 
 There is no cancelling: every request runs until it is approved.
@@ -81,9 +83,10 @@ def approved_coverage(cctv):
 
 
 def map_coverage(cctv):
-    """The boundary the map shows: Survey Mitra's latest one while a request is open, else the approved one."""
+    """The boundary the map shows and coverage counts: an open request's once it has been through
+    digitisation (sent on at least once, returns included), else the approved one."""
     request = open_request(cctv)
-    if request and request.geom:
+    if request and request.geom and request.digitasi_pada:
         return request.geom
     return approved_coverage(cctv)[0]
 
@@ -160,8 +163,12 @@ def _is_utm_50n(srs):
     return 'UTM' in name and 'ZONE_50N' in name and 'WGS' in name
 
 
-def read_shp_zip(upload):
-    """A zipped shapefile with exactly one polygon in UTM 50N -> MultiPolygon in EPSG:4326."""
+def read_shp_zip(upload, satu_feature=True):
+    """A zipped shapefile of polygons in UTM 50N -> MultiPolygon in EPSG:4326.
+
+    satu_feature: exactly one feature (a CCTV boundary). Otherwise any number of them (a work area),
+    returned as (MultiPolygon of every feature, not yet dissolved; feature count).
+    """
     try:
         archive = zipfile.ZipFile(upload)
     except zipfile.BadZipFile as exc:
@@ -183,27 +190,33 @@ def read_shp_zip(upload):
             for ext, member in parts.items():
                 with archive.open(member) as source, open(f'{folder}/boundary{ext}', 'wb') as target:
                     target.write(source.read())
-            return _read_shapefile(f'{folder}/boundary.shp')
+            return _read_shapefile(f'{folder}/boundary.shp', satu_feature)
 
 
-def _read_shapefile(path):
+def _read_shapefile(path, satu_feature=True):
     try:
         layer = DataSource(path)[0]
     except (GDALException, IndexError) as exc:
         raise GeometryError('Shapefile tidak terbaca.') from exc
-    if layer.num_feat != 1:
+    if satu_feature and layer.num_feat != 1:
         raise GeometryError(f'Shapefile harus berisi tepat 1 feature (ada {layer.num_feat}).')
+    if not layer.num_feat:
+        raise GeometryError('Shapefile tidak berisi feature.')
     if layer.srs is None or not _is_utm_50n(layer.srs):
         raise GeometryError('CRS shapefile harus WGS 84 / UTM zone 50N (EPSG:32650).')
-    ogr = layer[0].geom
-    # Base type without the Z/M flags (3 = polygon, 6 = multipolygon).
-    if (ogr.geom_type.num & 0x7FFFFFFF) % 1000 not in (3, 6):
-        raise GeometryError(f'Feature harus berupa polygon (bukan {ogr.geom_type.name}).')
-    flat = OGRGeometry(ogr.wkt)
-    flat.set_3d(False)
-    flat.set_measured(False)
-    geom = GEOSGeometry(flat.wkb, srid=UTM_50N).transform(4326, clone=True)
-    return MultiPolygon(geom, srid=4326) if isinstance(geom, Polygon) else geom
+    polygons = []
+    for number, feature in enumerate(layer, start=1):
+        ogr = feature.geom
+        # Base type without the Z/M flags (3 = polygon, 6 = multipolygon).
+        if (ogr.geom_type.num & 0x7FFFFFFF) % 1000 not in (3, 6):
+            raise GeometryError(f'Feature {number} harus berupa polygon (bukan {ogr.geom_type.name}).')
+        flat = OGRGeometry(ogr.wkt)
+        flat.set_3d(False)
+        flat.set_measured(False)
+        geom = GEOSGeometry(flat.wkb, srid=UTM_50N).transform(4326, clone=True)
+        polygons.extend([geom] if isinstance(geom, Polygon) else list(geom))
+    result = MultiPolygon(polygons, srid=4326)
+    return result if satu_feature else (result, layer.num_feat)
 
 
 def _batas_site():
@@ -318,7 +331,7 @@ def continue_request(pengajuan, user, cctv, before):
             _log(pengajuan, Aksi.OTOMATIS)
             return pengajuan
         pengajuan.jenis = PengajuanCoverage.Jenis.BARU if before is None else PengajuanCoverage.Jenis.DIPINDAH
-    pengajuan.status = Status.MENUNGGU_MITRA
+    pengajuan.status = Status.MENUNGGU_SGI if pengajuan.gabung else Status.MENUNGGU_MITRA
     pengajuan.save()
     _log(pengajuan, Aksi.DIAJUKAN, user, '' if first else 'diajukan ulang setelah dikembalikan')
     return pengajuan
@@ -372,6 +385,8 @@ def _return(pengajuan, user, ke, catatan, tahap):
 def review_sgi(pengajuan, user, *, aksi, checklist, catatan=''):
     """aksi: 'safety' (forward; the whole checklist), 'mitra' or 'it' (return, with a note)."""
     _expect(pengajuan, Status.MENUNGGU_SGI, Status.RETURN_SGI)
+    if pengajuan.gabung:
+        raise ReviewError('Pengajuan PT Berau Coal didigitasi dan diverifikasi sekaligus di tab Survey BC.')
     catatan = catatan.strip()
     pengajuan.checklist_sgi = _checked(PengajuanCoverage.CHECKLIST_SGI, checklist)
     if aksi in ('mitra', 'it'):
@@ -383,6 +398,44 @@ def review_sgi(pengajuan, user, *, aksi, checklist, catatan=''):
     pengajuan.status = Status.MENUNGGU_SAFETY
     pengajuan.checklist_safety = []
     pengajuan.save()
+    _log(pengajuan, Aksi.DISETUJUI_SGI, user, catatan)
+    return pengajuan
+
+
+@transaction.atomic
+def digitasi_sgi(pengajuan, user, geom, *, aksi, checklist, catatan='', sumber='', file_shp='', orthophoto=None):
+    """PT Berau Coal: Survey BC draws the boundary and checks it in one step.
+
+    aksi: 'draft' (keep boundary and ticks), 'safety' (validated boundary + whole checklist ->
+    Waiting Safety BC) or 'it' (Return to IT, with a note). There is no Survey Mitra to return to.
+    """
+    _expect(pengajuan, Status.MENUNGGU_SGI, Status.RETURN_SGI)
+    if not pengajuan.gabung:
+        raise ReviewError('Tahap gabungan hanya untuk CCTV PT Berau Coal.')
+    catatan = catatan.strip()
+    pengajuan.geom = geom
+    pengajuan.sumber_geom = sumber if geom else ''
+    pengajuan.file_shp = file_shp if sumber == PengajuanCoverage.SumberGeom.SHP else ''
+    pengajuan.orthophoto = orthophoto or pengajuan.orthophoto
+    pengajuan.checklist_sgi = _checked(PengajuanCoverage.CHECKLIST_SGI, checklist)
+    if aksi == 'draft':
+        pengajuan.digitasi_oleh = user
+        pengajuan.save()
+        return pengajuan
+    if aksi == 'it':
+        return _return(pengajuan, user, 'it', catatan, 'Survey BC')
+    if aksi != 'safety':
+        raise ReviewError('Pilih tindakan.')
+    summary = validate_geometry(geom, pengajuan.cctv)  # raises GeometryError
+    if len(pengajuan.checklist_sgi) != len(PengajuanCoverage.CHECKLIST_SGI):
+        raise ReviewError('Checklist Survey BC belum lengkap.')
+    pengajuan.digitasi_oleh = user
+    pengajuan.digitasi_pada = timezone.now()
+    pengajuan.status = Status.MENUNGGU_SAFETY
+    pengajuan.checklist_safety = []
+    pengajuan.save()
+    _log(pengajuan, Aksi.DIGITASI, user, f'v{pengajuan.versi}')
+    _log(pengajuan, Aksi.VALIDASI, None, summary)
     _log(pengajuan, Aksi.DISETUJUI_SGI, user, catatan)
     return pengajuan
 

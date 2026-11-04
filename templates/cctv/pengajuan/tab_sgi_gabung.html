@@ -1,0 +1,45 @@
+{% load pengguna %}
+{# PT Berau Coal: Survey BC draws the boundary and verifies it in one tab, then sends it to Safety or back to IT. #}
+{% if tab not in tab_terbuka %}
+<div class="alert alert-light">Belum sampai tahap ini: IT belum melanjutkan ke digitasi.</div>
+{% else %}
+{% if p.status == 'return_sgi' %}<div class="alert alert-warning">Dikembalikan Safety ke Survey BC. Lihat catatannya di riwayat, perbaiki boundary, lalu lanjutkan lagi.</div>{% endif %}
+
+{% include "cctv/pengajuan/info_cctv.html" %}
+
+<form method="post" action="{% url 'cctv:pengajuan_sgi_gabung' p.pk %}" id="form-digitasi">
+  {% csrf_token %}
+  {{ sgi_form.geom_json }}{{ sgi_form.nama_shp }}
+  <div class="banding">
+    {% include "cctv/pengajuan/sebelum.html" %}
+    <!-- After: IT's new data, and the boundary being drawn by Survey BC -->
+    {% include "cctv/pengajuan/sesudah_digitasi.html" %}
+  </div>
+
+  <!-- Checklist, validation and decision -->
+  <div class="row">
+    <div class="col-lg-6">
+      {% include "cctv/pengajuan/checklist.html" with judul="Checklist Survey BC" items=checklist_sgi aktif=can.sgi %}
+      {% include "cctv/pengajuan/validasi.html" with kirim="Lanjut ke Safety" %}
+    </div>
+    <div class="col-lg-6">
+      <div class="card verif-card">
+        <div class="card-body">
+          <h6>Catatan Survey BC</h6>
+          <textarea class="form-control" name="catatan" rows="4" placeholder="Wajib diisi jika dikembalikan ke IT..."{% if not can.sgi %} disabled{% endif %}></textarea>
+        </div>
+      </div>
+      {% if can.sgi %}
+      <div class="d-flex gap-2 mb-2">
+        <button class="btn btn-light flex-fill" type="submit" name="aksi" value="draft">Simpan draft</button>
+        <button class="btn btn-dark flex-fill" type="submit" name="aksi" value="safety">Lanjut ke Safety</button>
+      </div>
+      <button class="btn btn-outline-dark w-100" type="submit" name="aksi" value="it">Return to IT</button>
+      <p class="f-12 text-muted mt-2 mb-3">CCTV PT Berau Coal tidak melalui Survey Mitra: Survey BC menggambar dan memverifikasi boundary sekaligus. Lanjut ke Safety hanya jika boundary lolos validasi dan semua checklist dicentang.</p>
+      {% elif p.digitasi_pada %}
+      <p class="f-12">Didigitasi dan diverifikasi {{ p.digitasi_pada|date:"d M Y H:i" }} oleh {{ p.digitasi_oleh|nama_user }}.</p>
+      {% endif %}
+    </div>
+  </div>
+</form>
+{% endif %}

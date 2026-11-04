@@ -60,16 +60,16 @@ class FlowMixin:
     def setUpTestData(cls):
         User = get_user_model()
         cls.site, cls.other_site = Site.objects.create(kode='LMO'), Site.objects.create(kode='SMO')
-        cls.perusahaan = Perusahaan.objects.create(nama='PT Berau Coal', kode='BC')
-        cls.cctv = Cctv.objects.create(no_cctv='LMO-BC-0014', nama='Pit J', site=cls.site, jenis='fixed',
+        cls.perusahaan = Perusahaan.objects.create(nama='PT Pamapersada Nusantara', kode='PM')
+        cls.cctv = Cctv.objects.create(no_cctv='LMO-PM-0014', nama='Pit J', site=cls.site, jenis='fixed',
                                        perusahaan=cls.perusahaan, posisi=Point(*CAMERA, srid=4326))
         CctvSpec.objects.create(cctv=cls.cctv, radius_m=300, azimuth_deg=135)
 
         cls.it = User.objects.create_user('it', password='x')
         cls.it.groups.add(Group.objects.get(name=roles.IT_PAMA))
-        lmo = Group.objects.create(name='CCTV LMO - PT Berau Coal')
+        lmo = Group.objects.create(name='CCTV LMO - PT Pamapersada Nusantara')
         CakupanCctv.objects.create(group=lmo, site=cls.site, perusahaan=cls.perusahaan)
-        smo = Group.objects.create(name='CCTV SMO - PT Berau Coal')
+        smo = Group.objects.create(name='CCTV SMO - PT Pamapersada Nusantara')
         CakupanCctv.objects.create(group=smo, site=cls.other_site, perusahaan=cls.perusahaan)
         cls.mitra = User.objects.create_user('mitra', password='x')
         cls.mitra.groups.add(Group.objects.get(name=roles.SURVEY_MITRA), lmo)
@@ -197,24 +197,28 @@ class FlowTests(FlowMixin, TestCase):
 
     def test_new_cctv_goes_through_the_whole_flow(self):
         self.client.force_login(self.it)
-        data = {**self.cctv_form(no_cctv='LMO-BC-0100'), 'aksi': 'draft'}
+        data = {**self.cctv_form(no_cctv='LMO-PM-0100'), 'aksi': 'draft'}
         self.client.post(reverse('cctv:pengajuan_baru'), data)
         draft = PengajuanCoverage.objects.get(cctv__isnull=True)
-        self.assertEqual(draft.no_cctv, 'LMO-BC-0100')
-        self.assertFalse(Cctv.objects.filter(no_cctv='LMO-BC-0100').exists())
-        self.assertContains(self.client.get(reverse('cctv:index')), 'LMO-BC-0100')  # in the draft list
+        self.assertEqual(draft.no_cctv, 'LMO-PM-0100')
+        self.assertFalse(Cctv.objects.filter(no_cctv='LMO-PM-0100').exists())
+        self.assertContains(self.client.get(reverse('cctv:index')), 'LMO-PM-0100')  # in the draft list
 
-        data = {**self.cctv_form(no_cctv='LMO-BC-0100'), 'aksi': 'lanjutkan',
+        data = {**self.cctv_form(no_cctv='LMO-PM-0100'), 'aksi': 'lanjutkan',
                 'tangkapan_layar': SimpleUploadedFile('layar.png', PNG, content_type='image/png')}
         self.client.post(reverse('cctv:pengajuan_it', args=[draft.pk]), data)
         draft.refresh_from_db()
-        self.assertEqual((draft.cctv.no_cctv, draft.jenis, draft.status), ('LMO-BC-0100', 'baru', 'menunggu_mitra'))
+        self.assertEqual((draft.cctv.no_cctv, draft.jenis, draft.status), ('LMO-PM-0100', 'baru', 'menunggu_mitra'))
         self.assertIsNone(draft.posisi_sebelum)
 
-    def test_mitra_draft_shows_on_the_map_before_approval(self):
+    def test_boundary_counts_once_through_digitisation(self):
         pengajuan = self.digitasi(self.moved(), aksi='draft')
         self.assertEqual(pengajuan.status, 'menunggu_mitra')
-        self.assertEqual(coverage.map_coverage(self.cctv), pengajuan.geom)
+        self.assertIsNone(coverage.map_coverage(self.cctv))  # a draft is not counted yet
+        pengajuan = self.digitasi(pengajuan)
+        self.assertEqual(coverage.map_coverage(self.cctv), pengajuan.geom)  # sent on: counted before Approved
+        self.review(pengajuan, 'sgi', 'mitra', SGI_ALL[:1], 'Bench 3 terhalang')
+        self.assertEqual(coverage.map_coverage(self.cctv), pengajuan.geom)  # and still while returned
         self.client.force_login(self.it)
         self.assertContains(self.client.get(reverse('cctv:detail', args=[self.cctv.pk])), 'belum Approved')
 
@@ -364,17 +368,86 @@ class GeometryTests(FlowMixin, TestCase):
                 coverage.read_shp_zip(upload)
 
 
+class BerauCoalFlowTests(FlowMixin, TestCase):
+    """PT Berau Coal: IT -> Digitasi + Verifikasi Survey BC -> Safety BC, no Survey Mitra."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.perusahaan = Perusahaan.objects.create(nama='PT Berau Coal', kode='BC')
+        cls.cctv = Cctv.objects.create(no_cctv='LMO-BC-0014', nama='Pit J', site=cls.site, jenis='fixed',
+                                       perusahaan=cls.perusahaan, posisi=Point(*CAMERA, srid=4326))
+        CctvSpec.objects.create(cctv=cls.cctv, radius_m=300, azimuth_deg=135)
+        bc = Group.objects.create(name='CCTV LMO - PT Berau Coal')
+        CakupanCctv.objects.create(group=bc, site=cls.site, perusahaan=cls.perusahaan, bisa_ubah=True)
+        cls.it.groups.add(bc)
+        cls.mitra.groups.add(bc)
+
+    def cctv_form(self, **extra):
+        return super().cctv_form(no_cctv='LMO-BC-0014', **extra)
+
+    def gabung(self, pengajuan, aksi, checklist=(), polygon=None, catatan=''):
+        self.client.force_login(self.survey_bc)
+        data = {'geom_json': geojson(polygon or square(*CAMERA)), 'aksi': aksi, 'checklist': list(checklist),
+                'catatan': catatan}
+        self.response = self.client.post(reverse('cctv:pengajuan_sgi_gabung', args=[pengajuan.pk]), data)
+        pengajuan.refresh_from_db()
+        return pengajuan
+
+    def test_goes_straight_to_survey_bc(self):
+        pengajuan = self.moved()
+        self.assertEqual((pengajuan.status, pengajuan.gabung), ('menunggu_sgi', True))
+        self.client.force_login(self.survey_bc)
+        page = self.client.get(reverse('cctv:pengajuan', args=[pengajuan.pk]))
+        self.assertEqual([key for key, *_ in page.context['tabs']], ['it', 'sgi', 'safety', 'selesai'])
+        self.assertContains(page, 'Digitasi + Verifikasi Survey BC')
+        self.assertTrue(page.context['can']['draw'])
+        # Survey Mitra has nothing to do here, even with this CCTV in scope.
+        self.client.force_login(self.mitra)
+        url = reverse('cctv:pengajuan_mitra', args=[pengajuan.pk])
+        self.assertEqual(self.client.post(url, {'geom_json': geojson(square(*CAMERA)), 'aksi': 'kirim'}).status_code, 403)
+
+    def test_combined_step_to_safety_and_back(self):
+        pengajuan = self.gabung(self.moved(), 'draft', SGI_ALL[:1])
+        self.assertEqual((pengajuan.status, pengajuan.checklist_sgi), ('menunggu_sgi', SGI_ALL[:1]))
+        self.assertIsNone(coverage.map_coverage(self.cctv))  # not counted before it is sent on
+        self.assertEqual(self.gabung(pengajuan, 'safety', SGI_ALL[:2]).status, 'menunggu_sgi')  # checklist not whole
+        far = square(CAMERA[0] + 0.01, CAMERA[1])
+        self.assertEqual(self.gabung(pengajuan, 'safety', SGI_ALL, polygon=far).status, 'menunggu_sgi')  # too far
+        pengajuan = self.gabung(pengajuan, 'safety', SGI_ALL)
+        self.assertEqual((pengajuan.status, pengajuan.digitasi_oleh), ('menunggu_safety', self.survey_bc))
+        self.assertEqual(coverage.map_coverage(self.cctv), pengajuan.geom)
+        pengajuan = self.review(pengajuan, 'safety', 'sgi', [], 'Boundary kurang ke selatan')
+        self.assertEqual(pengajuan.status, 'return_sgi')
+        self.assertEqual(self.gabung(pengajuan, 'safety', SGI_ALL).status, 'menunggu_safety')
+        approved = self.review(pengajuan, 'safety', 'approve', SAFETY_ALL, 'OK')
+        self.assertEqual(approved.status, 'approved')
+
+    def test_combined_step_returns_only_to_it(self):
+        pengajuan = self.moved()
+        self.assertEqual(self.gabung(pengajuan, 'it').status, 'menunggu_sgi')  # a note is required
+        self.assertEqual(self.gabung(pengajuan, 'it', catatan='Koordinat salah').status, 'return_it')
+        pengajuan.status = 'menunggu_sgi'
+        with self.assertRaisesMessage(coverage.ReviewError, 'sekaligus'):
+            coverage.review_sgi(pengajuan, self.survey_bc, aksi='mitra', checklist=[], catatan='x')
+
+    def test_notification_asks_to_digitise(self):
+        from notifikasi.services import _message
+        _, pesan = _message(self.moved(), self.it)
+        self.assertIn('Mohon digitasi dan verifikasi', pesan)
+
+
 class SnapshotTests(FlowMixin, TestCase):
     def test_closing_a_week_once(self):
-        pengajuan = self.digitasi(self.moved(), aksi='draft')
+        pengajuan = self.digitasi(self.moved())
         minggu = datetime.date(2026, 10, 26)
         self.assertEqual(snapshot.close_week(minggu), 1)
         row = SnapshotMingguan.objects.get()
         self.assertEqual((row.no_cctv, row.status_pengajuan, row.minggu_pengajuan),
-                         ('LMO-BC-0014', 'menunggu_mitra', pengajuan.minggu))
-        self.assertEqual(row.coverage, pengajuan.geom)  # Mitra's boundary counts once drawn
+                         ('LMO-PM-0014', 'menunggu_sgi', pengajuan.minggu))
+        self.assertEqual(row.coverage, pengajuan.geom)  # Mitra's boundary counts once sent on
         self.assertEqual(row.data['spec']['radius_m'], 300)
 
         self.cctv.delete()
         self.assertEqual(snapshot.close_week(minggu), 0)  # locked: never rewritten
-        self.assertTrue(SnapshotMingguan.objects.filter(no_cctv='LMO-BC-0014').exists())
+        self.assertTrue(SnapshotMingguan.objects.filter(no_cctv='LMO-PM-0014').exists())

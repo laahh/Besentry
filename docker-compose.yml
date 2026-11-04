@@ -59,8 +59,9 @@ services:
   notifier:
     build: .
     container_name: besentry_notifier
-    # Mengirim WhatsApp/email ke PIC SGI dari antrean "notifikasi" (aktif jika NOTIFIKASI_ASYNC=True)
-    command: python manage.py rqworker notifikasi
+    # Mengirim WhatsApp/email dari antrean "notifikasi" (aktif jika NOTIFIKASI_ASYNC=True) dan
+    # menghitung ulang coverage live dari antrean "coverage" (aktif jika COVERAGE_ASYNC=True)
+    command: python manage.py rqworker notifikasi coverage
     env_file: .env
     environment:
       DATABASE_URL: postgis://besentry:besentry_dev@db:5432/besentry
@@ -76,7 +77,8 @@ services:
   snapshot:
     build: .
     container_name: besentry_snapshot
-    # Menutup minggu setiap Senin 00.00 WITA: snapshot semua CCTV, boundary, dan status pengajuan
+    # Menutup minggu setiap Senin 00.00 WITA: snapshot semua CCTV, boundary, dan status pengajuan,
+    # lalu snapshot coverage area kerja per Mitra Site (terkunci)
     command: python manage.py snapshot_mingguan --tunggu
     env_file: .env
     environment:
