@@ -377,6 +377,11 @@ class PengajuanCoverage(models.Model):
         return typed or '(CCTV baru)'
 
     @property
+    def gabung(self):
+        """PT Berau Coal: digitisation and Survey BC's check are one step (Survey BC), no Survey Mitra."""
+        return bool(self.cctv_id) and self.cctv.perusahaan.is_berau_coal
+
+    @property
     def tahap(self):
         return self.TAHAP[self.status]
 

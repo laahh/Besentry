@@ -25,13 +25,14 @@ def _plain(value):
 
 
 def _boundaries():
-    """{cctv_id: boundary as the map shows it}: Survey Mitra's while a request is open, else the approved one."""
+    """{cctv_id: boundary as the map shows it}: an open request's once it has been through digitisation
+    (see coverage.map_coverage), else the approved one."""
     approved = dict(
         CctvCoverage.objects.order_by('cctv_id', '-minggu').distinct('cctv_id').values_list('cctv_id', 'geom')
     )
     drafts = dict(
         PengajuanCoverage.objects.exclude(status__in=PengajuanCoverage.SELESAI)
-        .filter(cctv__isnull=False, geom__isnull=False).values_list('cctv_id', 'geom')
+        .filter(cctv__isnull=False, geom__isnull=False, digitasi_pada__isnull=False).values_list('cctv_id', 'geom')
     )
     return {**approved, **drafts}
 

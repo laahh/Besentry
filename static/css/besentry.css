@@ -392,3 +392,13 @@
   height: 16px;
   margin-top: 2px;
 }
+
+/* Work-area kinds: a small colour square before the name, matching the map. */
+.area-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 2px;
+  vertical-align: baseline;
+}

@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     'cctv_log',
     'pengaturan',
     'notifikasi',
+    'areakerja',
 ]
 
 MIDDLEWARE = [

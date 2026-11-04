@@ -41,6 +41,7 @@
 
 {% if tab == 'it' %}{% include "cctv/pengajuan/tab_it.html" %}
 {% elif tab == 'mitra' %}{% include "cctv/pengajuan/tab_mitra.html" %}
+{% elif tab == 'sgi' and p.gabung %}{% include "cctv/pengajuan/tab_sgi_gabung.html" %}
 {% elif tab == 'sgi' or tab == 'safety' %}{% include "cctv/pengajuan/tab_review.html" %}
 {% else %}{% include "cctv/pengajuan/tab_selesai.html" %}{% endif %}
 
@@ -88,7 +89,7 @@
     return map;
   }
 
-  {% if tab == 'mitra' %}
+  {% if tab_digitasi %}
   showMap('peta-sebelum', data.sebelum);
 
   const form = document.getElementById('form-digitasi');
@@ -96,7 +97,7 @@
   const namaShp = form.nama_shp;
   const status = document.getElementById('draw-status');
   const hasil = document.getElementById('validasi-hasil');
-  const canDraw = {{ can.mitra|yesno:"true,false" }};
+  const canDraw = {{ can.draw|yesno:"true,false" }};
   const cekUrl = "{% url 'cctv:pengajuan_mitra_cek' p.pk %}";
   const map = createMap(maplibregl, { container: 'peta-digitasi' });
   if (data.sesudah.kamera) map.jumpTo({ center: data.sesudah.kamera, zoom: 16 });
@@ -190,7 +191,22 @@
   {% endif %}
 </script>
 {% endif %}
-{% if tab == 'sgi' or tab == 'safety' %}
+{% if tab_digitasi and p.gabung %}
+<script>
+  // Return to IT needs a note; say so before the round trip.
+  (() => {
+    const form = document.getElementById('form-digitasi');
+    if (!form) return;
+    form.addEventListener('submit', (event) => {
+      if (event.submitter?.value === 'it' && !form.catatan.value.trim()) {
+        event.preventDefault();
+        form.catatan.classList.add('is-invalid');
+        form.catatan.focus();
+      }
+    });
+  })();
+</script>
+{% elif tab == 'sgi' or tab == 'safety' %}
 <script>
   // Returning needs a note, and so does every Safety decision; say so before the round trip.
   (() => {

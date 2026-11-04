@@ -1,0 +1,77 @@
+{% extends "layout/base.html" %}
+{% load pengguna %}
+
+{% block title %}Area Kerja{% endblock %}
+{% block page_title %}Area Kerja {{ minggu|date:"\WW o"|default:"" }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item">CCTV Management</li>
+<li class="breadcrumb-item active">Area Kerja</li>
+{% endblock %}
+{% block page_actions %}
+<a class="btn btn-light btn-sm" href="?minggu={{ sebelum|date:'Y-m-d' }}{% if site_dipilih %}&site={{ site_dipilih }}{% endif %}"><i data-feather="chevron-left"></i></a>
+<span class="badge badge-light text-dark f-14">{{ minggu|date:"d M" }} – {{ akhir|date:"d M Y" }}{% if minggu == minggu_ini %} · week berjalan{% endif %}</span>
+<a class="btn btn-light btn-sm" href="?minggu={{ sesudah|date:'Y-m-d' }}{% if site_dipilih %}&site={{ site_dipilih }}{% endif %}"><i data-feather="chevron-right"></i></a>
+{% endblock %}
+
+{% block content %}
+{% include "partials/messages.html" %}
+
+<div class="row">
+  {% include "dashboard/partials/stat_card.html" with color="primary" icon="briefcase" label="Mitra Site aktif" value=counts.total %}
+  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="check-circle" label="Approved week ini" value=counts.approved %}
+  {% include "dashboard/partials/stat_card.html" with color="primary" icon="clock" label="Menunggu Survey BC" value=counts.menunggu %}
+  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="rotate-ccw" label="Memakai area minggu lalu" value=counts.fallback %}
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end mb-3">
+      <input type="hidden" name="minggu" value="{{ minggu|date:'Y-m-d' }}">
+      <div class="col-lg-2 col-md-3 col-6">
+        <label class="form-label f-12 mb-1" for="f-site">Site</label>
+        <select class="form-select form-select-sm" name="site" id="f-site" onchange="this.form.submit()">
+          <option value="">Semua</option>
+          {% for site in sites %}<option value="{{ site.pk }}"{% if site_dipilih == site.pk|stringformat:"d" %} selected{% endif %}>{{ site.kode }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col">
+        <p class="f-12 text-muted mb-0">Area kerja diupload setiap Senin untuk week berjalan dan berlaku setelah diverifikasi Survey BC. Tanpa upload, week ini memakai area Approved terakhir dengan catatan.</p>
+      </div>
+    </form>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr><th>Site</th><th>Perusahaan</th><th>Pengajuan {{ minggu|date:"\WW o" }}</th><th>Area yang berlaku</th><th class="text-end"></th></tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td class="f-w-600">{{ row.mitra_site.site.kode }}</td>
+            <td>{{ row.mitra_site.perusahaan.nama }}</td>
+            <td>
+              {% if row.pengajuan %}<a href="{% url 'areakerja:pengajuan' row.pengajuan.pk %}"><span class="badge badge-{{ row.pengajuan.badge }}{% if row.pengajuan.badge == 'light' %} text-dark{% endif %}">{{ row.pengajuan.get_status_display }}</span></a>
+              {% else %}<span class="text-muted f-12">Belum ada</span>{% endif %}
+            </td>
+            <td class="f-12">
+              {% if row.berlaku.pengajuan %}
+              <a href="{% url 'areakerja:pengajuan' row.berlaku.pengajuan.pk %}?tab=selesai">{{ row.berlaku.pengajuan.minggu_label }}</a>
+              {% if row.berlaku.catatan %}<span class="text-warning ms-1">{{ row.berlaku.catatan }}</span>{% endif %}
+              {% else %}<span class="text-muted">{{ row.berlaku.catatan }}</span>{% endif %}
+            </td>
+            <td class="text-end">
+              {% if row.can_upload and not row.pengajuan %}
+              <form method="post" action="{% url 'areakerja:buka' row.mitra_site.pk %}" class="d-inline">{% csrf_token %}
+                <button class="btn btn-primary btn-xs" type="submit">{% if row.mitra_site.perusahaan.is_berau_coal %}Upload area BC{% else %}Ajukan area kerja{% endif %}</button>
+              </form>
+              {% elif row.pengajuan %}<a class="btn btn-light btn-xs" href="{% url 'areakerja:pengajuan' row.pengajuan.pk %}">Buka</a>{% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" class="text-muted">Tidak ada Mitra Site aktif dalam akses Anda.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

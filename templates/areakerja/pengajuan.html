@@ -1,0 +1,208 @@
+{% extends "layout/base.html" %}
+{% load pengguna %}
+
+{% block title %}Area Kerja {{ p.mitra_site }} {{ p.minggu_label }}{% endblock %}
+{% block page_title %}Pengajuan area kerja{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item">CCTV Management</li>
+<li class="breadcrumb-item"><a href="{% url 'areakerja:index' %}?minggu={{ p.minggu|date:'Y-m-d' }}">Area Kerja</a></li>
+<li class="breadcrumb-item active">{{ p.mitra_site }}</li>
+{% endblock %}
+{% block page_actions %}
+<span class="badge badge-{{ p.badge }}{% if p.badge == 'light' %} text-dark{% endif %} f-14">{{ p.get_status_display }}</span>
+<span class="badge badge-light text-dark f-14">{{ p.minggu_label }}</span>
+{% if p.terlambat %}<span class="badge badge-warning f-14">Approved terlambat</span>{% endif %}
+{% endblock %}
+{% block css %}{% include "layout/maplibre.html" %}{% endblock %}
+
+{% block content %}
+{% include "partials/messages.html" %}
+
+<!-- Stepper -->
+<div class="card">
+  <div class="card-body py-3">
+    <ol class="pengajuan-stepper">
+      {% for key, label, done, current in tabs %}
+      <li class="{% if done %}selesai{% elif current %}aktif{% endif %}{% if key == tab %} dibuka{% endif %}">
+        <a href="?tab={{ key }}">
+          <span class="pengajuan-step-no">{% if done %}<i data-feather="check"></i>{% else %}{{ forloop.counter }}{% endif %}</span>
+          <span>{{ label }}</span>
+        </a>
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+</div>
+
+<!-- Info -->
+<div class="card verif-card">
+  <div class="card-body">
+    <div class="digitasi-info">
+      <div><span>Site</span>{{ p.mitra_site.site.kode }}</div>
+      <div><span>Perusahaan</span>{{ p.mitra_site.perusahaan.nama }}</div>
+      <div><span>Week</span>{{ p.minggu_label }} ({{ p.minggu|date:"d M" }} – {{ p.terkunci_minggu|date:"d M Y" }} 00.00)</div>
+      <div><span>Alur</span>{% if p.gabung %}Upload & validasi Survey BC{% else %}Mitra → Verifikasi Survey BC{% endif %}</div>
+      <div><span>Diajukan</span>{{ p.diajukan_oleh|nama_user }}{% if p.diajukan_pada %} · {{ p.diajukan_pada|date:"d M H:i" }}{% endif %}</div>
+      <div><span>Disetujui</span>{% if p.disetujui_pada %}{{ p.disetujui_oleh|nama_user }} · {{ p.disetujui_pada|date:"d M H:i" }}{% else %}-{% endif %}</div>
+      <div><span>Total luas</span>{{ total_ha|floatformat:2 }} ha</div>
+      <div><span>Area minggu lalu</span>{% if lalu.pengajuan %}{{ lalu.pengajuan.minggu_label }}{% if lalu.fallback %} · {{ lalu.catatan }}{% endif %}{% else %}{{ lalu.catatan }}{% endif %}</div>
+    </div>
+  </div>
+</div>
+
+{% if tab not in tab_terbuka %}
+<div class="alert alert-light">Belum sampai tahap ini.</div>
+{% else %}
+{% if p.status == 'return_mitra' and tab == 'pengajuan' %}<div class="alert alert-warning">Dikembalikan Survey BC. Lihat catatannya di riwayat, perbaiki area, lalu ajukan lagi.</div>{% endif %}
+
+<div class="row">
+  <!-- Map -->
+  <div class="col-xl-7">
+    <div class="card verif-card">
+      <div class="card-body">
+        <h6>Peta area kerja <span class="text-muted f-12 fw-normal">· orthophoto aktif</span></h6>
+        <div class="peta-gambar digitasi-peta" id="peta-area"></div>
+        <div class="d-flex flex-wrap gap-3 f-12 mt-2">
+          {% for s in slots %}<span><span class="area-swatch" style="background:#{{ s.warna }}"></span>{{ s.jenis.label }}</span>{% endfor %}
+          <span class="text-muted">Garis putus-putus = area minggu lalu</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slots / summary -->
+  <div class="col-xl-5">
+    {% if tab == 'pengajuan' and can.edit %}
+    {% for s in slots %}
+    <div class="card verif-card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <h6 class="mb-0"><span class="area-swatch" style="background:#{{ s.warna }}"></span>{{ forloop.counter }}. {{ s.jenis.label }}</h6>
+          {% if s.area %}<span class="f-12 text-muted">{{ s.area.get_sumber_display }} · {{ s.area.luas_ha|floatformat:2 }} ha</span>{% else %}<span class="badge badge-light text-dark">Belum diisi</span>{% endif %}
+        </div>
+        {% if s.area.dipotong_ha %}<p class="f-12 text-warning mb-2">{{ s.area.dipotong_ha|floatformat:2 }} ha dipotong: tumpang tindih dengan jenis berprioritas lebih tinggi.</p>{% endif %}
+        {% if s.area.file_shp %}<p class="f-12 text-muted mb-2">{{ s.area.file_shp }} · {{ s.area.jumlah_feature }} feature{% if s.area.minggu_asal %} · dari area week {{ s.area.minggu_asal|date:"\WW o" }}{% endif %}</p>{% endif %}
+        <form method="post" enctype="multipart/form-data" action="{% url 'areakerja:slot' p.pk %}" class="area-slot">
+          {% csrf_token %}
+          <input type="hidden" name="jenis" value="{{ s.jenis.value }}">
+          <div class="d-flex flex-wrap gap-3 mb-2 f-12">
+            {% for value, label in sumber_choices %}
+            <label class="form-check mb-0">
+              <input class="form-check-input" type="radio" name="sumber" value="{{ value }}"{% if s.area.sumber == value or not s.area and forloop.first %} checked{% endif %}{% if value == 'minggu_lalu' and not s.lalu %} disabled{% endif %}>
+              <span class="form-check-label">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          <div class="d-flex gap-2">
+            <input class="form-control form-control-sm" type="file" name="file_shp" accept=".zip,application/zip">
+            <button class="btn btn-outline-primary btn-sm" type="submit">Simpan</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+    <p class="f-12 text-muted">Zip berisi .shp, .shx, .dbf, .prj; CRS UTM 50N; boleh banyak feature. Polygon di dalam satu jenis digabung (dissolve); tumpang tindih antar jenis dipotong mengikuti prioritas Pit → Hauling → Infra Tambang → Infra Non Tambang. Area di luar extent orthophoto aktif ditolak.</p>
+    {% if can.ajukan %}
+    <form method="post" action="{% url 'areakerja:ajukan' p.pk %}" class="card verif-card">
+      {% csrf_token %}
+      <div class="card-body">
+        <h6>{% if p.gabung %}Validasi area PT Berau Coal{% else %}Ajukan ke Survey BC{% endif %}</h6>
+        <textarea class="form-control mb-2" name="catatan" rows="2" placeholder="Catatan (opsional)">{{ p.catatan }}</textarea>
+        <button class="btn btn-primary w-100" type="submit"{% if not lengkap %} disabled{% endif %}>{% if p.gabung %}Validasi & berlakukan{% else %}Ajukan ke Survey BC{% endif %}</button>
+        {% if not lengkap %}<p class="f-12 text-muted mt-2 mb-0">Isi keempat jenis area dulu (upload, gunakan area minggu lalu, atau tidak ada).</p>{% endif %}
+      </div>
+    </form>
+    {% elif p.gabung and p.status == 'approved' %}
+    <p class="f-12 text-muted">Area PT Berau Coal sudah berlaku; perubahan selama week berjalan tetap tercatat di riwayat.</p>
+    {% endif %}
+
+    {% else %}
+    <div class="card verif-card">
+      <div class="card-body">
+        <h6>Ringkasan area</h6>
+        <table class="table verif-meta mb-0">
+          <tbody>
+            {% for s in slots %}
+            <tr>
+              <td><span class="area-swatch" style="background:#{{ s.warna }}"></span>{{ s.jenis.label }}</td>
+              <td class="text-end">{% if s.area %}{{ s.area.luas_ha|floatformat:2 }} ha <span class="text-muted">· {{ s.area.get_sumber_display }}</span>{% else %}-{% endif %}</td>
+            </tr>
+            {% endfor %}
+            <tr><td class="f-w-600">Total</td><td class="text-end f-w-600">{{ total_ha|floatformat:2 }} ha</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% if tab == 'sgi' and can.verify %}
+    <form method="post" action="{% url 'areakerja:verifikasi' p.pk %}" class="card verif-card" id="form-verifikasi">
+      {% csrf_token %}
+      <div class="card-body">
+        <h6>Verifikasi Survey BC</h6>
+        <textarea class="form-control mb-2" name="catatan" rows="3" placeholder="Wajib diisi jika dikembalikan..."></textarea>
+        <div class="d-flex gap-2">
+          <button class="btn btn-dark flex-fill" type="submit" name="aksi" value="approve">Approve</button>
+          <button class="btn btn-outline-dark flex-fill" type="submit" name="aksi" value="return">Return to Mitra</button>
+        </div>
+      </div>
+    </form>
+    {% elif tab == 'selesai' %}
+    <p class="f-12">{% if p.terlambat %}Approved setelah week ditutup: tetap berlaku untuk {{ p.minggu_label }}, dengan catatan.{% else %}Berlaku untuk {{ p.minggu_label }}.{% endif %}</p>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card verif-card">
+  <div class="card-body">
+    <h6>Riwayat</h6>
+    <ul class="verif-timeline mb-0">
+      {% for r in riwayat %}
+      <li><span class="verif-time">{{ r.waktu|date:"d M H:i" }}</span><span>{{ r.user|nama_user:"Sistem" }}: {{ r.get_aksi_display|lower }}{% if r.catatan %} <span class="text-muted">({{ r.catatan }})</span>{% endif %}</span></li>
+      {% empty %}<li><span class="verif-time">-</span><span class="text-muted">Belum ada riwayat.</span></li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{{ peta|json_script:"data-peta" }}
+{% endblock %}
+
+{% block scriptcontent %}
+<script type="module">
+  import * as maplibregl from 'maplibre-gl';
+  import { createMap } from 'besentry/peta';
+  import { addOrthophotoLayer } from 'besentry/orthophoto-layer';
+  import { addCoverage, fitExtent } from 'besentry/coverage-map';
+
+  const data = JSON.parse(document.getElementById('data-peta').textContent);
+  const map = createMap(maplibregl, { container: 'peta-area' });
+  fitExtent(map, data.extent);
+  map.once('style.load', () => {
+    addOrthophotoLayer(map, { apiUrl: "{% url 'orthophoto:current' %}" }).catch(() => null);
+    // Last week's area dashed underneath, this request's on top, lowest priority first.
+    data.jenis.forEach((j) => addCoverage(maplibregl, map, { geometry: j.lalu, color: j.warna, dashed: true, id: `lalu-${j.id}` }));
+    [...data.jenis].reverse().forEach((j) => addCoverage(maplibregl, map, { geometry: j.geom, color: j.warna, id: `area-${j.id}` }));
+  });
+</script>
+<script>
+  // Returning needs a note; and an upload needs a file.
+  (() => {
+    const form = document.getElementById('form-verifikasi');
+    form?.addEventListener('submit', (event) => {
+      if (event.submitter?.value === 'return' && !form.catatan.value.trim()) {
+        event.preventDefault();
+        form.catatan.classList.add('is-invalid');
+        form.catatan.focus();
+      }
+    });
+    document.querySelectorAll('form.area-slot').forEach((slot) => {
+      slot.addEventListener('submit', (event) => {
+        if (slot.sumber.value === 'upload' && !slot.file_shp.files.length) {
+          event.preventDefault();
+          slot.file_shp.classList.add('is-invalid');
+        }
+      });
+    });
+  })();
+</script>
+{% endblock %}
