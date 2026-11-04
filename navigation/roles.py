@@ -11,9 +11,11 @@ MITRA_ONLY = 'mitra-only'
 SURVEY_MITRA = 'survey-mitra'
 SURVEY_BC = 'survey-bc'
 SAFETY = 'safety-approval'
+# Work areas are verified together by SGI (survey-bc), Mining and Safety BC.
+MINING = 'mining-bc'
 
 IT_ROLES = (IT_PAMA, IT_MTL, IT_BC)
-ALL_ROLES = (ADMIN_HAZARD_MOTION, *IT_ROLES, MITRA_ONLY, SURVEY_MITRA, SURVEY_BC, SAFETY)
+ALL_ROLES = (ADMIN_HAZARD_MOTION, *IT_ROLES, MITRA_ONLY, SURVEY_MITRA, SURVEY_BC, SAFETY, MINING)
 CCTV_ADMINS = (ADMIN_HAZARD_MOTION, *IT_ROLES)
 
 

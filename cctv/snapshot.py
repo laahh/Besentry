@@ -24,14 +24,15 @@ def _plain(value):
     return value.isoformat() if isinstance(value, (datetime.date, datetime.datetime)) else value
 
 
-def _boundaries():
-    """{cctv_id: boundary as the map shows it}: Survey Mitra's while a request is open, else the approved one."""
+def boundaries():
+    """{cctv_id: boundary as the map shows it}: an open request's once it has been through digitisation
+    (see coverage.map_coverage), else the approved one."""
     approved = dict(
         CctvCoverage.objects.order_by('cctv_id', '-minggu').distinct('cctv_id').values_list('cctv_id', 'geom')
     )
     drafts = dict(
         PengajuanCoverage.objects.exclude(status__in=PengajuanCoverage.SELESAI)
-        .filter(cctv__isnull=False, geom__isnull=False).values_list('cctv_id', 'geom')
+        .filter(cctv__isnull=False, geom__isnull=False, digitasi_pada__isnull=False).values_list('cctv_id', 'geom')
     )
     return {**approved, **drafts}
 
@@ -49,7 +50,7 @@ def close_week(minggu=None):
         pengajuan_minggu=Subquery(latest.values('minggu')[:1]),
     )
     fields = [f for f in Cctv._meta.concrete_fields if f.name not in SKIP_FIELDS]
-    boundaries = _boundaries()
+    boundary_of = boundaries()
     rows = []
     for cctv in cctvs.iterator(chunk_size=500):
         spec = getattr(cctv, 'spec', None)
@@ -57,7 +58,7 @@ def close_week(minggu=None):
         data['spec'] = {name: getattr(spec, name) for name in SPEC_FIELDS} if spec else None
         rows.append(SnapshotMingguan(
             minggu=minggu, cctv_id=cctv.pk, no_cctv=cctv.no_cctv, data=data, posisi=cctv.posisi,
-            coverage=boundaries.get(cctv.pk), status_pengajuan=cctv.pengajuan_status or '',
+            coverage=boundary_of.get(cctv.pk), status_pengajuan=cctv.pengajuan_status or '',
             minggu_pengajuan=cctv.pengajuan_minggu,
         ))
     SnapshotMingguan.objects.bulk_create(rows, batch_size=500)

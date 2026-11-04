@@ -158,7 +158,8 @@
 <script type="module">
   import * as maplibregl from 'maplibre-gl';
   import { createMap } from 'besentry/peta';
-  import { addCctvLayer } from 'besentry/cctv-layer';
+  import { addCctvLayer, KONDISI_COLORS } from 'besentry/cctv-layer';
+  import { addAreaKerjaLayer, AREA_LEGEND, MapLegend } from 'besentry/area-kerja-layer';
 
   // The map and its data load only when the tab is first opened.
   const link = document.getElementById('tab-peta-link');
@@ -166,7 +167,15 @@
     const el = document.getElementById('peta-cctv');
     const map = createMap(maplibregl, { container: el });
     // style.load, not load: points appear without waiting for every basemap tile (slow site links).
-    map.once('style.load', () => addCctvLayer(maplibregl, map, { url: el.dataset.geojson, detailUrl: el.dataset.detail }));
+    map.once('style.load', () => {
+      addAreaKerjaLayer(map, { url: "{% url 'areakerja:peta_berlaku' %}" });  // this week's work areas, under the points
+      addCctvLayer(maplibregl, map, { url: el.dataset.geojson, detailUrl: el.dataset.detail });
+      const kondisi = { baik: 'Baik', breakdown: 'Breakdown', repair: 'Repair', dismantle: 'Dismantle', take_out: 'Take Out' };
+      map.addControl(new MapLegend([
+        ...Object.entries(kondisi).map(([key, label]) => ({ label: `CCTV ${label}`, color: KONDISI_COLORS[key], type: 'dot' })),
+        ...AREA_LEGEND,
+      ]), 'top-right');
+    });
   }, { once: true });
 
   // Selects filter immediately; the search box waits for Enter.

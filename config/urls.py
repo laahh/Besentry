@@ -26,6 +26,7 @@ urlpatterns = [
     path('dashboard/', include('dashboard.urls')),
     path('admin/', admin.site.urls),
     path('', include('cctv.urls')),
+    path('', include('areakerja.urls')),
     path('', include('pengaturan.urls')),
     path('', include('notifikasi.urls')),
     path('', include('orthophoto.urls')),

@@ -1,0 +1,548 @@
+{% extends "layout/base.html" %}
+{% load pengguna %}
+
+{% block title %}Area Kerja {{ p.mitra_site }} {{ p.minggu_label }}{% endblock %}
+{% block page_title %}Pengajuan area kerja{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item">CCTV Management</li>
+<li class="breadcrumb-item"><a href="{% url 'areakerja:index' %}?minggu={{ p.minggu|date:'Y-m-d' }}">Area Kerja</a></li>
+<li class="breadcrumb-item active">{{ p.mitra_site }}</li>
+{% endblock %}
+{% block page_actions %}
+<span class="badge badge-{{ p.badge }}{% if p.badge == 'light' %} text-dark{% endif %} f-14">{{ p.status_label }}</span>
+<span class="badge badge-light text-dark f-14">{{ p.minggu_label }}</span>
+{% if p.terlambat %}<span class="badge badge-warning f-14">Approved terlambat</span>{% endif %}
+{% endblock %}
+{% block css %}{% include "layout/maplibre.html" %}{% endblock %}
+
+{% block content %}
+{% include "partials/messages.html" %}
+
+<!-- Stepper -->
+<div class="card">
+  <div class="card-body py-3">
+    <ol class="pengajuan-stepper">
+      {% for key, label, done, current, link in tabs %}
+      <li class="{% if done %}selesai{% elif current %}aktif{% endif %}{% if key == tab %} dibuka{% endif %}{% if not link %} terkunci{% endif %}">
+        {% if link %}<a href="?tab={{ key }}">{% else %}<span title="Sudah selesai">{% endif %}
+          <span class="pengajuan-step-no">{% if done %}<i data-feather="check"></i>{% else %}{{ forloop.counter }}{% endif %}</span>
+          <span>{{ label }}</span>
+        {% if link %}</a>{% else %}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+</div>
+
+<!-- Info -->
+<div class="card verif-card">
+  <div class="card-body">
+    <div class="digitasi-info">
+      <div><span>Site</span>{{ p.mitra_site.site.kode }}</div>
+      <div><span>Perusahaan</span>{{ p.mitra_site.perusahaan.nama }}</div>
+      <div><span>Week</span>{{ p.minggu_label }} ({{ p.minggu|date:"d M" }} – {{ p.terkunci_minggu|date:"d M Y" }} 00.00)</div>
+      <div><span>Alur</span>{% if p.gabung %}Survey BC → Verifikasi BC{% else %}Mitra → Verifikasi BC{% endif %}</div>
+      <div><span>Diajukan</span>{{ p.diajukan_oleh|nama_user }}{% if p.diajukan_pada %} · {{ p.diajukan_pada|date:"d M H:i" }}{% endif %}</div>
+      <div><span>Disetujui</span>{% if p.disetujui_pada %}{{ p.disetujui_oleh|nama_user }} · {{ p.disetujui_pada|date:"d M H:i" }}{% else %}-{% endif %}</div>
+      <div><span>Total luas</span>{{ total_ha|floatformat:2 }} ha</div>
+      <div><span>Area minggu lalu</span>{% if lalu.pengajuan %}{{ lalu.pengajuan.minggu_label }}{% if lalu.fallback %} · {{ lalu.catatan }}{% endif %}{% else %}{{ lalu.catatan }}{% endif %}</div>
+    </div>
+  </div>
+</div>
+
+{% if tab not in tab_terbuka %}
+<div class="alert alert-light">Belum sampai tahap ini.</div>
+{% else %}
+{% if p.status == 'return_mitra' and tab == 'pengajuan' %}<div class="alert alert-warning">Dikembalikan Verifikasi BC. Perbaiki area sesuai catatan di riwayat dan anotasi di peta, centang anotasi yang sudah diperbaiki, lalu ajukan lagi.</div>{% endif %}
+
+<div class="row">
+  <!-- Map: larger while verifying, so reviewers can read the CCTV around the areas and annotate -->
+  <div class="{% if tab == 'pengajuan' %}col-xl-7{% else %}col-xl-9{% endif %}">
+    <div class="card verif-card">
+      <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+          <h6 class="mb-0">Peta area kerja <span class="text-muted f-12 fw-normal">· orthophoto aktif{% if tab != 'pengajuan' %} · CCTV gabungan terbaru{% endif %}</span></h6>
+          {% if tab != 'pengajuan' %}
+          <div class="peta-toolbar">
+            <div class="peta-toggle" role="radiogroup" aria-label="CCTV yang ditampilkan">
+              <input type="radio" name="mode-cctv" id="mode-milik" value="milik" checked>
+              <label for="mode-milik">CCTV milik kontraktor</label>
+              <input type="radio" name="mode-cctv" id="mode-semua" value="semua">
+              <label for="mode-semua">Semua CCTV</label>
+            </div>
+            {% if can.anotasi %}
+            <div class="peta-toggle" role="group" aria-label="Tambah anotasi">
+              <span class="peta-toggle-label"><i data-feather="map-pin"></i>Anotasi</span>
+              <button type="button" data-bentuk="titik">Titik</button>
+              <button type="button" data-bentuk="garis">Garis</button>
+              <button type="button" data-bentuk="area">Area</button>
+            </div>
+            <button class="btn-peta" type="button" id="anotasi-selesai" hidden><i data-feather="check"></i>Selesai</button>
+            {% endif %}
+          </div>
+          {% endif %}
+        </div>
+        <div class="peta-gambar {% if tab == 'pengajuan' %}digitasi-peta{% else %}peta-verifikasi{% endif %}" id="peta-area"></div>
+        {% if can.anotasi %}<p class="f-12 text-muted mt-2 mb-0" id="anotasi-hint">Anotasi: pilih Titik lalu klik peta; atau Garis / Area, klik titik-titiknya, lalu Selesai atau double-click. Tulis catatannya; anotasi tetap ada saat area diupload ulang.</p>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="{% if tab == 'pengajuan' %}col-xl-5{% else %}col-xl-3{% endif %}">
+    {% if tab == 'pengajuan' and can.edit %}
+    {% for s in slots %}
+    <div class="card verif-card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <h6 class="mb-0"><span class="area-swatch" style="background:#{{ s.warna }}"></span>{{ forloop.counter }}. {{ s.jenis.label }}</h6>
+          {% if s.area %}<span class="f-12 text-muted">{{ s.area.get_sumber_display }} · {{ s.area.luas_ha|floatformat:2 }} ha</span>{% else %}<span class="badge badge-light text-dark">Belum diisi</span>{% endif %}
+        </div>
+        {% if s.area.dipotong_ha %}<p class="f-12 text-warning mb-2">{{ s.area.dipotong_ha|floatformat:2 }} ha dipotong: tumpang tindih dengan jenis berprioritas lebih tinggi.</p>{% endif %}
+        {% if s.area.file_shp %}<p class="f-12 text-muted mb-2">{{ s.area.file_shp }} · {{ s.area.jumlah_feature }} feature{% if s.area.minggu_asal %} · dari area week {{ s.area.minggu_asal|date:"\WW o" }}{% endif %}</p>{% endif %}
+        <form method="post" enctype="multipart/form-data" action="{% url 'areakerja:slot' p.pk %}" class="area-slot">
+          {% csrf_token %}
+          <input type="hidden" name="jenis" value="{{ s.jenis.value }}">
+          <div class="d-flex flex-wrap gap-3 mb-2 f-12">
+            {% for value, label in sumber_choices %}
+            <label class="form-check mb-0">
+              <input class="form-check-input" type="radio" name="sumber" value="{{ value }}"{% if s.area.sumber == value or not s.area and forloop.first %} checked{% endif %}{% if value == 'minggu_lalu' and not s.lalu %} disabled{% endif %}>
+              <span class="form-check-label">{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          <div class="d-flex gap-2">
+            <input class="form-control form-control-sm" type="file" name="file_shp" accept=".zip,application/zip">
+            <button class="btn btn-outline-primary btn-sm" type="submit">Simpan</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endfor %}
+    <p class="f-12 text-muted">Zip berisi .shp, .shx, .dbf, .prj; CRS UTM 50N; boleh banyak feature. Polygon di dalam satu jenis digabung (dissolve); tumpang tindih antar jenis dipotong mengikuti prioritas Pit → Hauling → Infra Tambang → Infra Non Tambang. Area di luar extent orthophoto aktif ditolak.</p>
+    {% if anotasi %}{% include "areakerja/partials/anotasi.html" %}{% endif %}
+    {% if can.ajukan %}
+    <form method="post" action="{% url 'areakerja:ajukan' p.pk %}" class="card verif-card">
+      {% csrf_token %}
+      <div class="card-body">
+        <h6>Ajukan ke Verifikasi BC</h6>
+        <textarea class="form-control mb-2" name="catatan" rows="2" placeholder="Catatan (opsional)">{{ p.catatan }}</textarea>
+        <button class="btn btn-primary w-100" type="submit"{% if not lengkap %} disabled{% endif %}>Ajukan ke Verifikasi BC</button>
+        <p class="f-12 text-muted mt-2 mb-0">{% if not lengkap %}Isi keempat jenis area dulu (upload, gunakan area minggu lalu, atau tidak ada). {% endif %}Diverifikasi bersama oleh SGI, Mining, dan Safety BC.</p>
+      </div>
+    </form>
+    {% endif %}
+
+    {% else %}
+    <div class="card verif-card">
+      <div class="card-body">
+        <h6>Ringkasan area</h6>
+        <table class="table verif-meta mb-0">
+          <tbody>
+            {% for s in slots %}
+            <tr>
+              <td><span class="area-swatch" style="background:#{{ s.warna }}"></span>{{ s.jenis.label }}</td>
+              <td class="text-end">{% if s.area and s.area.luas_ha %}{{ s.area.luas_ha|floatformat:2 }} ha{% elif s.area %}<span class="text-muted">tidak ada</span>{% else %}-{% endif %}</td>
+            </tr>
+            {% endfor %}
+            <tr><td class="f-w-600">Total</td><td class="text-end f-w-600">{{ total_ha|floatformat:2 }} ha</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Verifikasi BC: one 'Disetujui' per department -->
+    <div class="card verif-card">
+      <div class="card-body">
+        <h6>Verifikasi BC</h6>
+        {% for v in verifikasi %}
+        <div class="verif-dept">
+          <div class="d-flex justify-content-between align-items-center">
+            <span class="f-w-600 f-12">{{ v.departemen.label }}</span>
+            {% if v.hasil %}<span class="badge badge-success">Disetujui</span>{% else %}<span class="badge badge-light text-dark">Menunggu</span>{% endif %}
+          </div>
+          {% if v.hasil %}<div class="f-12 text-muted">{{ v.hasil.user|nama_user }} · {{ v.hasil.waktu|date:"d M H:i" }}</div>
+          {% elif v.bisa %}
+          <form method="post" action="{% url 'areakerja:verifikasi' p.pk %}" class="mt-1">
+            {% csrf_token %}
+            <input type="hidden" name="departemen" value="{{ v.departemen.value }}">
+            <input type="hidden" name="aksi" value="setujui">
+            <label class="form-check f-12 mb-1"><input class="form-check-input" type="checkbox" required> Disetujui</label>
+            <button class="btn btn-dark btn-xs w-100" type="submit">Simpan persetujuan {{ v.departemen.label }}</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endfor %}
+        {% if can.verify %}
+        <form method="post" action="{% url 'areakerja:verifikasi' p.pk %}" class="mt-3" id="form-kembalikan">
+          {% csrf_token %}
+          <input type="hidden" name="aksi" value="kembalikan">
+          <div class="f-12 f-w-600 mb-1">Kembalikan ke {% if p.gabung %}Survey BC{% else %}Mitra{% endif %}</div>
+          {% if departemen_saya|length > 1 %}
+          <select class="form-select form-select-sm mb-1" name="departemen" aria-label="Sebagai departemen">
+            {% for v in verifikasi %}{% if v.departemen.value in departemen_saya %}<option value="{{ v.departemen.value }}">Sebagai {{ v.departemen.label }}</option>{% endif %}{% endfor %}
+          </select>
+          {% else %}<input type="hidden" name="departemen" value="{{ departemen_saya.0 }}">{% endif %}
+          <textarea class="form-control form-control-sm mb-1" name="catatan" rows="3" required placeholder="Catatan wajib diisi..."></textarea>
+          <button class="btn btn-outline-dark btn-sm w-100" type="submit">Kembalikan</button>
+        </form>
+        {% elif tab == 'sgi' and p.status == 'menunggu_sgi' %}
+        <p class="f-12 text-muted mt-2 mb-0">Disetujui oleh SGI, Mining, dan Safety BC; Approved setelah ketiganya lengkap.</p>
+        {% endif %}
+      </div>
+    </div>
+    {% include "areakerja/partials/anotasi.html" %}
+    {% if tab == 'selesai' %}
+    <p class="f-12">{% if p.terlambat %}Approved setelah week ditutup: tetap berlaku untuk {{ p.minggu_label }}, dengan catatan.{% else %}Berlaku untuk {{ p.minggu_label }}.{% endif %}</p>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card verif-card">
+  <div class="card-body">
+    <h6>Riwayat</h6>
+    <ul class="verif-timeline mb-0">
+      {% for r in riwayat %}
+      <li><span class="verif-time">{{ r.waktu|date:"d M H:i" }}</span><span>{{ r.user|nama_user:"Sistem" }}: {{ r.get_aksi_display|lower }}{% if r.catatan %} <span class="text-muted">({{ r.catatan }})</span>{% endif %}</span></li>
+      {% empty %}<li><span class="verif-time">-</span><span class="text-muted">Belum ada riwayat.</span></li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{{ peta|json_script:"data-peta" }}
+{% endblock %}
+
+{% block scriptcontent %}
+<script type="module">
+  import * as maplibregl from 'maplibre-gl';
+  import { createMap } from 'besentry/peta';
+  import { addOrthophotoLayer } from 'besentry/orthophoto-layer';
+  import { ACTIVE_COLOR, addCoverage, fitExtent } from 'besentry/coverage-map';
+  import { KONDISI_COLORS } from 'besentry/cctv-layer';
+  import { MapLegend } from 'besentry/area-kerja-layer';
+
+  const data = JSON.parse(document.getElementById('data-peta').textContent);
+  const verifying = '{{ tab }}' !== 'pengajuan';
+  const canAnnotate = {{ can.anotasi|yesno:"true,false" }};
+  const departemen = JSON.parse('{{ departemen_json|escapejs }}');
+  const csrf = document.querySelector('[name=csrfmiddlewaretoken]')?.value;
+  const DEPT = { sgi: ['SGI', '#1f7a3a'], mining: ['Mining', '#b7800f'], safety: ['Safety BC', '#d9493f'] };
+  const MATI_COLOR = '#e8a317';
+
+  const map = createMap(maplibregl, { container: 'peta-area' });
+  fitExtent(map, data.extent);
+  // The columns settle after the map is made; keep the canvas the size of its box.
+  new ResizeObserver(() => map.resize()).observe(document.getElementById('peta-area'));
+
+  const ukuran = (a) => [a.bentuk_label, a.ukuran].filter(Boolean).join(' · ');
+
+  function marker(a, number) {
+    const el = document.createElement('div');
+    el.className = `anotasi-marker anotasi-${a.kode}${a.selesai ? ' selesai' : ''}`;
+    el.textContent = number;
+    // Open from the start, and left open while the map is clicked; only its × closes it.
+    const popup = new maplibregl.Popup({ offset: 14, maxWidth: '240px', closeOnClick: false }).setDOMContent((() => {
+      const box = document.createElement('div');
+      const text = document.createElement('div');
+      text.className = 'f-12';
+      text.textContent = a.teks;
+      const meta = document.createElement('div');
+      meta.className = 'text-muted anotasi-meta';
+      meta.textContent = `${ukuran(a)} · ${a.departemen} · ${a.oleh} · ${a.waktu}${a.selesai ? ' · sudah diperbaiki' : ''}`;
+      box.append(text, meta);
+      return box;
+    })());
+    const pin = new maplibregl.Marker({ element: el }).setLngLat([a.lon, a.lat]).setPopup(popup).addTo(map);
+    popup.on('open', () => { popup.ditutup = false; });
+    popup.on('close', () => { if (!popup.disembunyikan) popup.ditutup = true; });  // closed by the user
+    pin.togglePopup();
+    return pin;
+  }
+
+  // Hiding a department hides its popups too; showing it again reopens those the user left open.
+  function showNote(note, on) {
+    const popup = note.marker.getPopup();
+    note.marker.getElement().style.display = on ? '' : 'none';
+    if (!on && popup.isOpen()) {
+      popup.disembunyikan = true;
+      popup.remove();
+      popup.disembunyikan = false;
+    } else if (on && !popup.ditutup && !popup.isOpen()) {
+      note.marker.togglePopup();
+    }
+  }
+
+  // Lines and areas of the notes, in their department's colour, under the numbered markers.
+  function refreshShapes() {
+    const source = map.getSource('anotasi-bentuk');
+    if (!source) return;
+    source.setData({ type: 'FeatureCollection', features: notes
+      .filter((n) => n.geom && !hiddenDept.has(n.kode))
+      .map((n) => ({ type: 'Feature', geometry: n.geom, properties: { kode: n.kode, selesai: n.selesai } })) });
+  }
+  const deptColor = ['match', ['get', 'kode'], ...Object.entries(DEPT).flatMap(([kode, [, color]]) => [kode, color]), '#555555'];
+
+  map.once('style.load', async () => {
+    addOrthophotoLayer(map, { apiUrl: "{% url 'orthophoto:current' %}" }).catch(() => null);
+    // Last week's area dashed underneath, this request's on top, lowest priority first.
+    data.jenis.forEach((j) => addCoverage(maplibregl, map, { geometry: j.lalu, color: j.warna, dashed: true, id: `lalu-${j.id}` }));
+    [...data.jenis].reverse().forEach((j) => addCoverage(maplibregl, map, { geometry: j.geom, color: j.warna, id: `area-${j.id}` }));
+
+    // While verifying and once in force, each legend row switches its layer on and off.
+    const both = (id) => [`${id}-fill`, `${id}-line`];
+    const switchable = (layers) => (verifying ? { layers } : {});
+    const legend = [
+      ...(verifying ? [{ label: 'Orthophoto', color: '#6b7280', layers: ['orthophoto'] }] : []),
+      ...data.jenis.map((j) => ({ label: j.label, color: j.warna, ...switchable(both(`area-${j.id}`)) })),
+      { label: 'Area minggu lalu', color: '#6b7280', type: 'dashed', ...switchable(data.jenis.flatMap((j) => both(`lalu-${j.id}`))) },
+    ];
+    if (verifying) {
+      // The latest CCTV around these areas: coverage first, points on top. The toggle filters on `milik`;
+      // active and dead coverage are separate layers so each can be hidden.
+      map.addSource('cctv-coverage', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addSource('cctv-titik', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      const KELOMPOK = { aktif: ['==', ['get', 'kelompok'], 'aktif'], mati: ['!=', ['get', 'kelompok'], 'aktif'] };
+      Object.entries({ aktif: ACTIVE_COLOR, mati: MATI_COLOR }).forEach(([kelompok, color]) => {
+        map.addLayer({ id: `cctv-${kelompok}-fill`, type: 'fill', source: 'cctv-coverage', filter: KELOMPOK[kelompok],
+          paint: { 'fill-color': color, 'fill-opacity': 0.22 } });
+        map.addLayer({ id: `cctv-${kelompok}-line`, type: 'line', source: 'cctv-coverage', filter: KELOMPOK[kelompok],
+          paint: { 'line-color': color, 'line-width': 1.4 } });
+      });
+      map.addLayer({ id: 'cctv-titik', type: 'circle', source: 'cctv-titik', paint: {
+        'circle-radius': 5, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.5,
+        'circle-color': ['match', ['get', 'kondisi'], ...Object.entries(KONDISI_COLORS).flat(), '#999999'] } });
+      const setMode = (mode) => {
+        const milik = ['==', ['get', 'milik'], true];
+        const only = (base) => (mode === 'milik' ? (base ? ['all', base, milik] : milik) : base || null);
+        ['aktif', 'mati'].forEach((k) => both(`cctv-${k}`).forEach((id) => map.setFilter(id, only(KELOMPOK[k]))));
+        map.setFilter('cctv-titik', only(null));
+      };
+      setMode('milik');
+      document.querySelectorAll('[name=mode-cctv]').forEach((radio) => radio.addEventListener('change', () => setMode(radio.value)));
+      fetch("{% url 'areakerja:cctv_sekitar' p.pk %}", { credentials: 'same-origin' })
+        .then((r) => (r.ok && !r.redirected ? r.json() : null))
+        .then((cctv) => {
+          if (!cctv) return;
+          map.getSource('cctv-coverage').setData(cctv.coverage);
+          map.getSource('cctv-titik').setData(cctv.titik);
+        })
+        .catch(() => null);
+      map.on('click', 'cctv-titik', (event) => {
+        if (mode) return;
+        const { no, nama } = event.features[0].properties;
+        new maplibregl.Popup({ offset: 8 }).setLngLat(event.lngLat).setText(`${no} · ${nama}`).addTo(map);
+      });
+      legend.push({ heading: 'CCTV' },
+        { label: 'Coverage aktif', color: ACTIVE_COLOR, layers: both('cctv-aktif') },
+        { label: 'Coverage mati (potensi)', color: MATI_COLOR, layers: both('cctv-mati') },
+        { label: 'Titik CCTV (warna = kondisi)', color: KONDISI_COLORS.baik, type: 'dot', layers: ['cctv-titik'] });
+    }
+    // Notes: their lines and areas, and the sketch being drawn, on top of everything else.
+    map.addSource('anotasi-bentuk', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'anotasi-bentuk-fill', type: 'fill', source: 'anotasi-bentuk', filter: ['==', ['geometry-type'], 'Polygon'],
+      paint: { 'fill-color': deptColor, 'fill-opacity': ['case', ['get', 'selesai'], 0.08, 0.18] } });
+    map.addLayer({ id: 'anotasi-bentuk-line', type: 'line', source: 'anotasi-bentuk',
+      paint: { 'line-color': deptColor, 'line-width': 3, 'line-opacity': ['case', ['get', 'selesai'], 0.5, 1] } });
+    map.addSource('sketsa', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'sketsa-fill', type: 'fill', source: 'sketsa', filter: ['==', ['geometry-type'], 'Polygon'],
+      paint: { 'fill-color': '#111111', 'fill-opacity': 0.12 } });
+    map.addLayer({ id: 'sketsa-line', type: 'line', source: 'sketsa', filter: ['==', ['geometry-type'], 'LineString'],
+      paint: { 'line-color': '#111111', 'line-width': 2, 'line-dasharray': [2, 1] } });
+    map.addLayer({ id: 'sketsa-titik', type: 'circle', source: 'sketsa', filter: ['==', ['geometry-type'], 'Point'],
+      paint: { 'circle-radius': 4, 'circle-color': '#ffffff', 'circle-stroke-color': '#111111', 'circle-stroke-width': 2 } });
+    data.anotasi.forEach((a) => addNote(a, document.querySelector(`.anotasi-item[data-anotasi="${a.id}"]`)));
+    if (data.anotasi.length || canAnnotate) {
+      const showDept = (kode, on) => {
+        if (on) hiddenDept.delete(kode); else hiddenDept.add(kode);
+        notes.filter((n) => n.kode === kode).forEach((n) => showNote(n, on));
+        refreshShapes();
+      };
+      legend.push({ heading: 'Anotasi' }, ...Object.entries(DEPT).map(([kode, [label, color]]) => ({
+        label, color, type: 'dot', ...(verifying ? { onToggle: (on) => showDept(kode, on) } : {}),
+      })));
+    }
+    map.addControl(new MapLegend(legend), 'top-right');
+  });
+
+  // Map notes: a marker on the map and a row in the list beside it, numbered alike. Added and
+  // removed in place, without reloading the page.
+  const notes = [];
+  const hiddenDept = new Set();
+  const list = document.getElementById('anotasi-list');
+  const hapusUrl = "{% url 'areakerja:anotasi_hapus' p.pk 0 %}";
+
+  function renumber() {
+    notes.forEach((n, i) => {
+      n.marker.getElement().textContent = i + 1;
+      n.item.querySelector('.anotasi-no').textContent = i + 1;
+    });
+    const count = document.getElementById('anotasi-count');
+    if (count) count.textContent = notes.length;
+    document.getElementById('anotasi-kosong')?.toggleAttribute('hidden', notes.length > 0);
+    refreshShapes();
+  }
+
+  function noteRow(a) {
+    const item = document.createElement('div');
+    item.className = 'anotasi-item';
+    item.dataset.anotasi = a.id;
+    const no = document.createElement('span');
+    no.className = `anotasi-no anotasi-${a.kode}`;
+    const body = document.createElement('div');
+    body.className = 'flex-fill';
+    const text = document.createElement('div');
+    text.className = 'f-12';
+    text.textContent = a.teks;
+    const meta = document.createElement('div');
+    meta.className = 'text-muted anotasi-meta';
+    meta.textContent = `${ukuran(a)} · ${a.departemen} · ${a.oleh} · ${a.waktu}`;
+    body.append(text, meta);
+    if (a.milik_saya && canAnnotate) {
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'btn btn-link btn-xs p-0 text-danger anotasi-hapus';
+      del.dataset.url = hapusUrl.replace('/0/hapus/', `/${a.id}/hapus/`);
+      del.textContent = 'Hapus';
+      body.append(del);
+    }
+    item.append(no, body);
+    list?.append(item);
+    return item;
+  }
+
+  function bounds(geom) {
+    const coords = geom.type === 'Polygon' ? geom.coordinates[0] : geom.coordinates;
+    const xs = coords.map((c) => c[0]);
+    const ys = coords.map((c) => c[1]);
+    return [[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]];
+  }
+
+  function addNote(a, item) {
+    const note = { id: a.id, kode: a.kode, geom: a.geom, selesai: a.selesai,
+      marker: marker(a, notes.length + 1), item: item || noteRow(a) };
+    if (hiddenDept.has(a.kode)) showNote(note, false);
+    note.item.addEventListener('click', (event) => {
+      if (event.target.closest('form, button')) return;
+      if (a.geom) map.fitBounds(bounds(a.geom), { padding: 80, maxZoom: 18 });
+      else map.flyTo({ center: [a.lon, a.lat], zoom: Math.max(map.getZoom(), 17) });
+    });
+    note.item.querySelector('.anotasi-hapus')?.addEventListener('click', async (event) => {
+      const del = event.currentTarget;
+      del.disabled = true;
+      const body = new FormData();
+      body.append('csrfmiddlewaretoken', csrf);
+      const response = await fetch(del.dataset.url, { method: 'POST', body });
+      if (!response.ok) { del.disabled = false; return; }
+      note.marker.remove();
+      note.item.remove();
+      notes.splice(notes.indexOf(note), 1);
+      renumber();
+    });
+    notes.push(note);
+    renumber();
+  }
+
+  // Reviewers add a note as a point (one click), a line or an area (click the vertices, then
+  // Selesai or a double-click); a small form then asks for the text. Notes are not edited: a
+  // wrong one is deleted and drawn again.
+  let mode = null;   // 'titik' | 'garis' | 'area' while adding
+  let sketch = [];   // the vertices clicked so far
+  let formOpen = false;  // the text form is up: clicks no longer add vertices
+  const modeButtons = document.querySelectorAll('[data-bentuk]');
+  const selesai = document.getElementById('anotasi-selesai');
+  const MIN_TITIK = { garis: 2, area: 3 };
+
+  function showSketch() {
+    const source = map.getSource('sketsa');
+    if (!source) return;
+    const features = sketch.map((c) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: c }, properties: {} }));
+    if (sketch.length > 1) {
+      const ring = mode === 'area' && sketch.length > 2 ? [...sketch, sketch[0]] : sketch;
+      features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: ring }, properties: {} });
+      if (mode === 'area' && sketch.length > 2) {
+        features.push({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [ring] }, properties: {} });
+      }
+    }
+    source.setData({ type: 'FeatureCollection', features });
+  }
+
+  function setMode(next) {
+    mode = mode === next ? null : next;
+    sketch = [];
+    showSketch();
+    modeButtons.forEach((b) => b.classList.toggle('active', b.dataset.bentuk === mode));
+    if (selesai) selesai.hidden = !(mode === 'garis' || mode === 'area');
+    map.getCanvas().style.cursor = mode ? 'crosshair' : '';
+    if (mode === 'garis' || mode === 'area') map.doubleClickZoom.disable(); else map.doubleClickZoom.enable();
+  }
+  modeButtons.forEach((b) => b.addEventListener('click', () => setMode(b.dataset.bentuk)));
+
+  function openForm(extra, lngLat) {
+    const form = document.createElement('form');
+    form.className = 'anotasi-form';
+    const pick = departemen.length > 1
+      ? `<select class="form-select form-select-sm mb-1" name="departemen">${departemen.map((d) => `<option value="${d}">${DEPT[d][0]}</option>`).join('')}</select>`
+      : `<input type="hidden" name="departemen" value="${departemen[0]}">`;
+    form.innerHTML = `${pick}<textarea class="form-control form-control-sm mb-1" name="teks" rows="3" required maxlength="1000" placeholder="Catatan anotasi..."></textarea>
+      <button class="btn btn-dark btn-xs w-100" type="submit">Simpan anotasi</button><div class="text-danger f-12 mt-1"></div>`;
+    const popup = new maplibregl.Popup({ closeOnClick: false, maxWidth: '260px' }).setLngLat(lngLat).setDOMContent(form).addTo(map);
+    formOpen = true;
+    popup.on('close', () => { formOpen = false; if (!popup.saved) setMode(null); });  // closing the form drops the sketch
+    form.teks.focus();
+    form.addEventListener('submit', async (submit) => {
+      submit.preventDefault();
+      const body = new FormData(form);
+      Object.entries(extra).forEach(([key, value]) => body.append(key, value));
+      body.append('csrfmiddlewaretoken', csrf);
+      const response = await fetch("{% url 'areakerja:anotasi_tambah' p.pk %}", { method: 'POST', body });
+      const result = await response.json().catch(() => ({ error: `Gagal (${response.status}).` }));
+      if (!response.ok) { form.querySelector('.text-danger').textContent = result.error; return; }
+      popup.saved = true;
+      popup.remove();
+      setMode(null);
+      addNote(result);
+    });
+  }
+
+  function finish() {
+    // A double-click also lands two clicks on the same spot: drop repeated vertices.
+    const coords = sketch.filter((c, i) => i === 0 || c[0] !== sketch[i - 1][0] || c[1] !== sketch[i - 1][1]);
+    if (coords.length < MIN_TITIK[mode]) return;
+    sketch = coords;
+    showSketch();
+    const geometry = mode === 'garis'
+      ? { type: 'LineString', coordinates: coords }
+      : { type: 'Polygon', coordinates: [[...coords, coords[0]]] };
+    openForm({ geometri: JSON.stringify(geometry) }, coords[coords.length - 1]);
+  }
+  selesai?.addEventListener('click', () => { if (mode === 'garis' || mode === 'area') finish(); });
+
+  map.on('click', (event) => {
+    if (!mode || !canAnnotate || formOpen) return;
+    if (mode === 'titik') {
+      openForm({ lon: event.lngLat.lng, lat: event.lngLat.lat }, event.lngLat);
+      return;
+    }
+    sketch.push(event.lngLat.toArray());
+    showSketch();
+  });
+  map.on('dblclick', (event) => {
+    if (mode !== 'garis' && mode !== 'area') return;
+    event.preventDefault();
+    finish();
+  });
+
+</script>
+<script>
+  // An upload needs a file.
+  document.querySelectorAll('form.area-slot').forEach((slot) => {
+    slot.addEventListener('submit', (event) => {
+      if (slot.sumber.value === 'upload' && !slot.file_shp.files.length) {
+        event.preventDefault();
+        slot.file_shp.classList.add('is-invalid');
+      }
+    });
+  });
+</script>
+{% endblock %}
