@@ -1,8 +1,12 @@
 // Dashboard Coverage: the week's coverage layers over the orthophoto, and the 12-week trend.
 //
-//   const peta = initCoverageMap(maplibregl, el, { lapisan: { tercover, potensi, tidak }, area, cctv, cctv_detail, ortho, fit },
-//                                { fullscreen: wrapper });   // fullscreen takes the wrapper (map + its panel)
+//   const peta = initCoverageMap(maplibregl, el, { lapisan: { tercover, potensi, tidak }, area, cctv, cctv_detail, ortho, fit, site },
+//                                { fullscreen: wrapper });   // fullscreen takes the wrapper (map + its panels)
 //   peta.reload(newUrls);   // same layers, another filter: data replaced in place, view reframed
+//   peta.fullscreen.onExit(() => ...);
+//
+// Built from the shared map modules: peta, satelit-layer, orthophoto-layer, area-kerja-layer,
+// cctv-layer and fullscreen-panel. The week time slider is static/js/week-timeline.js.
 //   drawTren(el, [{ label, persen: { tercover, potensi, tidak } }, ...]);   // needs window.ApexCharts
 //
 // Every URL already carries the page's filter (week, mode, jenis, site, kontraktor).
@@ -11,18 +15,14 @@ import { createMap } from 'besentry/peta';
 import { addOrthophotoLayer } from 'besentry/orthophoto-layer';
 import { addCctvLayer, KONDISI_COLORS } from 'besentry/cctv-layer';
 import { addAreaKerjaLayer, AREA_WARNA, MapLegend } from 'besentry/area-kerja-layer';
+import { addSatelitLayer } from 'besentry/satelit-layer';
+import { fullscreenWithPanel } from 'besentry/fullscreen-panel';
 
 // One place for the coverage colours (layer colours are to be standardised later).
 export const COVERAGE_WARNA = {
   tercover: '#1f7a3a',
   potensi: '#e8a317',
   tidak: '#d9493f',
-};
-// Satellite imagery under the orthophoto, so the land outside its extent is not a blank basemap.
-const SATELIT = {
-  url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-  maxzoom: 19,
-  attribution: 'Citra satelit © Esri, Maxar, Earthstar Geographics',
 };
 const COVERAGE_LABEL = { tercover: 'Tercover', potensi: 'Potensi (CCTV mati)', tidak: 'Tidak tercover' };
 const JENIS_LABEL = { pit: 'Pit', hauling: 'Hauling', infra_tambang: 'Infra Tambang', infra_non_tambang: 'Infra Non Tambang' };
@@ -55,10 +55,11 @@ const COVERAGE_IDS = ['tidak', 'potensi', 'tercover'];
 
 export function initCoverageMap(maplibregl, el, urls, { fullscreen } = {}) {
   const map = createMap(maplibregl, { container: el });
-  map.addControl(new maplibregl.FullscreenControl(fullscreen ? { container: fullscreen } : {}), 'top-left');
+  const fs = fullscreen ? fullscreenWithPanel(maplibregl, map, fullscreen)
+    : (map.addControl(new maplibregl.FullscreenControl(), 'top-left'), null);
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
   new ResizeObserver(() => map.resize()).observe(el);
-  const peta = { map, urls, ortho: null, reload: () => {} };
+  const peta = { map, urls, ortho: null, fullscreen: fs, reload: () => {} };
 
   // All sites: the orthophoto's extent, zoomed out. One site: its work areas.
   function frame(current, areaData) {
@@ -76,8 +77,7 @@ export function initCoverageMap(maplibregl, el, urls, { fullscreen } = {}) {
     // Bottom to top: satellite imagery, orthophoto, work-area outlines, not covered, potential,
     // covered, CCTV points. Basemap labels stay on top of both photos.
     const labels = map.getStyle().layers.find((layer) => layer.type === 'symbol')?.id;
-    map.addSource('satelit', { type: 'raster', tiles: [SATELIT.url], tileSize: 256, maxzoom: SATELIT.maxzoom, attribution: SATELIT.attribution });
-    map.addLayer({ id: 'satelit', type: 'raster', source: 'satelit' }, labels);
+    addSatelitLayer(map, { beforeId: labels });
     const ortho = addOrthophotoLayer(map, { apiUrl: urls.ortho, beforeId: labels }).catch(() => null);
     const area = addAreaKerjaLayer(map, { url: urls.area });
     const lapisan = {};

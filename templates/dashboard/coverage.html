@@ -1,5 +1,5 @@
 {% extends "layout/base.html" %}
-{% load static %}
+{% load static static_version %}
 
 {% block title %}Dashboard Coverage{% endblock %}
 {% block page_title %}Dashboard Coverage {{ minggu|date:"\WW o" }}{% endblock %}
@@ -7,7 +7,11 @@
 <li class="breadcrumb-item">CCTV Management</li>
 <li class="breadcrumb-item active">Dashboard Coverage</li>
 {% endblock %}
-{% block css %}{% include "layout/maplibre.html" %}{% endblock %}
+{% block css %}
+{% include "layout/maplibre.html" %}
+<link rel="stylesheet" href="{% static_v 'css/fullscreen-panel.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/week-timeline.css' %}">
+{% endblock %}
 {% block page_actions %}
 <div class="d-flex flex-nowrap align-items-center justify-content-sm-end gap-1">
   <a class="btn btn-light btn-sm" href="?minggu={{ sebelum|date:'Y-m-d' }}{% if filter_qs %}&{{ filter_qs }}{% endif %}" title="Week sebelumnya"><i data-feather="chevron-left"></i></a>
@@ -89,15 +93,9 @@
   <div class="card-header pb-0"><h5>Peta coverage <span class="f-12 text-muted f-w-400">· {{ minggu|date:"\WW o" }}</span></h5></div>
   <div class="card-body">
     {# Fullscreen takes this wrapper, so the panel below (shown only in fullscreen) comes along with the map. #}
-    <div class="peta-wrap" id="peta-wrap">
-      <div id="peta-coverage" class="peta-dashboard"></div>
-      <div class="peta-overlay" id="peta-overlay">
-        <div class="d-flex align-items-center gap-1 mb-2">
-          <button class="btn btn-light btn-xs" type="button" data-minggu="sebelum" title="Week sebelumnya"><i data-feather="chevron-left"></i></button>
-          <span class="f-w-600 f-12 text-nowrap" data-isi="label">{{ minggu|date:"\WW o" }}</span>
-          <span class="f-12 text-muted text-nowrap" data-isi="rentang">{{ minggu|date:"d M" }} – {{ akhir|date:"d M Y" }}</span>
-          <button class="btn btn-light btn-xs" type="button" data-minggu="sesudah" title="Week berikutnya"{% if not sesudah %} disabled{% endif %}><i data-feather="chevron-right"></i></button>
-        </div>
+    <div class="peta-wrap fs-wrap" id="peta-wrap">
+      <div id="peta-coverage" class="peta-dashboard fs-map"></div>
+      <div class="peta-overlay fs-only" id="peta-overlay">
         <div class="overlay-kpi mb-2">
           <div class="kpi-tercover"><span>Tercover</span><strong data-kpi="tercover">{{ kpi_teks.tercover }}</strong></div>
           <div class="kpi-potensi"><span>Potensi</span><strong data-kpi="potensi">{{ kpi_teks.potensi }}</strong></div>
@@ -123,6 +121,8 @@
           </select>
         </form>
       </div>
+      {# The week time slider (static/js/week-timeline.js builds it), fullscreen only. #}
+      <div class="peta-timeline fs-only" id="peta-timeline"></div>
     </div>
   </div>
 </div>
@@ -185,6 +185,7 @@
 {% include "partials/week_picker.html" %}
 {{ peta|json_script:"data-peta" }}
 {{ tren|json_script:"data-tren" }}
+{{ garis_waktu|json_script:"data-garis-waktu" }}
 {% endblock %}
 
 {% block scriptcontent %}
@@ -192,45 +193,39 @@
 <script type="module">
   import * as maplibregl from 'maplibre-gl';
   import { initCoverageMap, drawTren } from 'besentry/dashboard-coverage';
+  import { WeekTimeline, STATUS } from 'besentry/week-timeline';
 
   const peta = initCoverageMap(maplibregl, document.getElementById('peta-coverage'),
     JSON.parse(document.getElementById('data-peta').textContent), { fullscreen: document.getElementById('peta-wrap') });
   drawTren(document.getElementById('tren-coverage'), JSON.parse(document.getElementById('data-tren').textContent));
 
-  // The fullscreen panel: changing its filter or week updates the map and KPI in place (a reload would
-  // leave fullscreen). On leaving fullscreen the page reloads once, so the table and trend catch up.
+  // Fullscreen: the panel's filters and the week timeline update the map and KPI in place (a reload
+  // would leave fullscreen). On leaving fullscreen the page reloads once, so the table and trend catch up.
   const overlay = document.getElementById('peta-overlay');
   const form = document.getElementById('overlay-filter');
   let current = null;
+  const timeline = new WeekTimeline(document.getElementById('peta-timeline'), {
+    weeks: JSON.parse(document.getElementById('data-garis-waktu').textContent),
+    selected: form.minggu.value,
+    statuses: { ...STATUS, menunggu: { ...STATUS.menunggu, label: 'Menunggu area kerja' } },
+    onPick: (minggu) => { form.minggu.value = minggu; apply(); },
+  });
   async function apply() {
     const query = new URLSearchParams([...new FormData(form)].filter(([, value]) => value));
     const response = await fetch(`${peta.urls.data}?${query}`, { credentials: 'same-origin' });
     if (!response.ok || response.redirected) return;
     current = await response.json();
     form.minggu.value = current.minggu;
-    overlay.querySelector('[data-isi="label"]').textContent = current.label;
-    overlay.querySelector('[data-isi="rentang"]').textContent = current.rentang;
-    overlay.querySelector('[data-minggu="sesudah"]').disabled = !current.sesudah;
     Object.entries(current.kpi_teks).forEach(([key, text]) => {
       const cell = overlay.querySelector(`[data-kpi="${key}"]`);
       if (cell) cell.textContent = text;
     });
+    timeline.update(current.garis_waktu, current.minggu);  // bars follow the filter
     peta.reload(current.peta);
     history.replaceState(null, '', `?${current.query}`);
   }
   form.querySelectorAll('select').forEach((select) => select.addEventListener('change', apply));
-  overlay.querySelectorAll('[data-minggu]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const target = current ? current[button.dataset.minggu] : button.dataset.minggu === 'sebelum'
-        ? "{{ sebelum|date:'Y-m-d' }}" : "{{ sesudah|date:'Y-m-d' }}";
-      if (!target) return;
-      form.minggu.value = target;
-      apply();
-    });
-  });
-  document.addEventListener('fullscreenchange', () => {
-    if (!document.fullscreenElement && current) window.location.reload();
-  });
+  peta.fullscreen.onExit(() => { if (current) window.location.reload(); });
 
   // Selects filter immediately, as on CCTV Database.
   document.querySelectorAll('#coverage-filter select').forEach((select) => {
