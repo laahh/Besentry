@@ -47,6 +47,7 @@ def _peta(f):
         'lapisan': {name: f"{reverse('coverage:lapisan', args=[name])}?{query}" for name in LAPISAN},
         'area': f"{reverse('coverage:area')}?{query}",
         'cctv': f"{reverse('coverage:cctv')}?{query}",
+        'boundary': f"{reverse('coverage:boundary')}?{query}",
         'cctv_detail': reverse('cctv:detail', args=[0]),
         'ortho': reverse('orthophoto:current'),
         'data': reverse('coverage:data'),
@@ -129,6 +130,13 @@ def area_geojson(request):
 def cctv_geojson(request):
     f = _filter(request)
     return _geojson(coverage.cctv_titik(f), f)
+
+
+@login_required
+def boundary_geojson(request):
+    """The CCTV coverage boundaries (one polygon per camera) of the selected week."""
+    f = _filter(request)
+    return _geojson(coverage.cctv_boundary(f), f)
 
 
 @login_required

@@ -177,6 +177,19 @@ class DashboardCoverageTests(TestCase):
         self.assertEqual(len(self.get('area', minggu=W45.isoformat()).json()['features']), 1)
         self.assertEqual(len(self.get('lapisan', args=['tercover'], minggu=W45.isoformat()).json()['features']), 1)
 
+    def test_cctv_boundaries(self):
+        self.area()
+        self.cctv('A', square(X, Y, 0.002))
+        self.cctv('M', square(X + 0.002, Y, 0.002), status='offline')
+        live = {f['properties']['no']: f['properties']['kelompok'] for f in self.get('boundary').json()['features']}
+        self.assertEqual(live, {'A': 'aktif', 'M': 'mati'})
+        self.lock_w45()
+        self.week(W46)
+        Cctv.objects.filter(no_cctv='M').update(kondisi='dismantle')
+        locked = {f['properties']['no']: f['properties']['kondisi'] for f in self.get('boundary', minggu=W45.isoformat()).json()['features']}
+        self.assertEqual(locked, {'A': 'baik', 'M': 'baik'})  # as the CCTV snapshot locked them
+        self.assertEqual(self.get('boundary', self.mitra).status_code, 403)
+
     def test_fullscreen_panel_data(self):
         self.area()
         self.cctv('A', square(X, Y, 0.002))

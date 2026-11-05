@@ -17,7 +17,7 @@ export const AREA_WARNA = {
   infra_non_tambang: '#00acc1',
 };
 
-const AREA_LABEL = {
+export const AREA_LABEL = {
   pit: 'Pit',
   hauling: 'Hauling',
   infra_tambang: 'Infra Tambang',
@@ -31,17 +31,32 @@ export const AREA_LEGEND = [
 
 const colorByJenis = ['match', ['get', 'jenis'], ...Object.entries(AREA_WARNA).flat(), '#888888'];
 
-export function addAreaKerjaLayer(map, { url }) {
+// The layer ids of one kind when the areas are drawn per kind (`perJenis`), for a legend toggle.
+export const areaKerjaLayers = (jenis) => [`${SOURCE_ID}-${jenis}-fill`, `${SOURCE_ID}-${jenis}-line`];
+
+// Legend rows that switch each kind on and off (with `perJenis`), drawn as polygons.
+export const AREA_LEGEND_TOGGLE = [
+  { heading: 'Area kerja' },
+  ...Object.entries(AREA_WARNA).map(([jenis, color]) => ({ label: AREA_LABEL[jenis], color, type: 'area', layers: areaKerjaLayers(jenis) })),
+];
+
+export function addAreaKerjaLayer(map, { url, perJenis = false }) {
   // Layers are added now, empty, so whatever the page adds next is drawn on top of them.
+  // perJenis: one fill + line layer per kind (so a legend can switch each kind), else one pair for all.
   map.addSource(SOURCE_ID, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  map.addLayer({
-    id: `${SOURCE_ID}-fill`, type: 'fill', source: SOURCE_ID,
-    paint: { 'fill-color': colorByJenis, 'fill-opacity': 0.16 },
-  });
-  map.addLayer({
-    id: `${SOURCE_ID}-line`, type: 'line', source: SOURCE_ID,
-    paint: { 'line-color': colorByJenis, 'line-width': 1.2, 'line-opacity': 0.9 },
-  });
+  const groups = perJenis
+    ? Object.keys(AREA_WARNA).map((jenis) => [areaKerjaLayers(jenis), ['==', ['get', 'jenis'], jenis]])
+    : [[[`${SOURCE_ID}-fill`, `${SOURCE_ID}-line`], null]];
+  for (const [[fillId, lineId], filter] of groups) {
+    map.addLayer({
+      id: fillId, type: 'fill', source: SOURCE_ID, ...(filter ? { filter } : {}),
+      paint: { 'fill-color': colorByJenis, 'fill-opacity': 0.16 },
+    });
+    map.addLayer({
+      id: lineId, type: 'line', source: SOURCE_ID, ...(filter ? { filter } : {}),
+      paint: { 'line-color': colorByJenis, 'line-width': 1.2, 'line-opacity': 0.9 },
+    });
+  }
   return fetch(url, { credentials: 'same-origin' })
     .then((response) => (response.ok && !response.redirected ? response.json() : null))
     .then((data) => { if (data) map.getSource(SOURCE_ID).setData(data); return data; })
