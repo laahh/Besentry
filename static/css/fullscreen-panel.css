@@ -1,0 +1,109 @@
+/* fullscreenWithPanel (static/js/fullscreen-panel.js): the wrapper goes fullscreen with the map and
+   its panels; .fs-only elements show only then. Position the panels with the page's own classes. */
+.fs-wrap {
+  position: relative;
+}
+
+.fs-wrap:fullscreen {
+  background: #fff;
+}
+
+.fs-wrap:fullscreen .fs-map {
+  height: 100vh;
+  min-height: 0;
+  border-radius: 0;
+}
+
+.fs-only {
+  display: none;
+}
+
+.fs-wrap:fullscreen .fs-only {
+  display: block;
+}
+
+/* Hovering the map dims it a little and brings up "Buka peta penuh" in its middle */
+.fs-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  background: rgba(10, 18, 14, 0.38);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease-out;
+}
+
+.fs-wrap:hover::after {
+  opacity: 1;
+}
+
+.fs-wrap:fullscreen::after {
+  display: none;
+}
+
+.fs-open {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 22px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: #134e2b;
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.96);
+  transition: opacity 0.18s ease-out, transform 0.18s ease-out, background 0.15s ease-out;
+}
+
+.fs-open svg {
+  width: 18px;
+  height: 18px;
+}
+
+.fs-wrap:hover .fs-open,
+.fs-open:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.fs-open:hover {
+  background: #e5f4e4;
+}
+
+/* No hover on touch screens: keep it visible, faintly */
+@media (hover: none) {
+  .fs-open {
+    opacity: 0.85;
+    pointer-events: auto;
+  }
+}
+
+.fs-wrap:fullscreen .fs-open {
+  display: none;
+}
+
+/* The exit button sits in the map's control group, only in fullscreen */
+.fs-exit {
+  display: none;
+}
+
+.fs-wrap:fullscreen .fs-exit {
+  display: block;
+}
+
+.fs-exit button svg {
+  display: block;
+  margin: auto;
+}

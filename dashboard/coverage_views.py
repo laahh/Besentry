@@ -81,6 +81,7 @@ def data_json(request):
     week = _minggu(f)
     return JsonResponse({
         'kpi': kpi, 'kpi_teks': teks, 'query': urlencode(f.query()), 'peta': _peta(f),
+        'garis_waktu': coverage.garis_waktu(f),
         'minggu': week['minggu'].isoformat(), 'label': week['label'], 'live': week['live'],
         'rentang': f"{week['minggu']:%d %b} – {week['akhir']:%d %b %Y}",
         'sebelum': week['sebelum'].isoformat(), 'sesudah': week['sesudah'].isoformat() if week['sesudah'] else None,
@@ -106,7 +107,7 @@ def page(request):
         'sites': sites, 'perusahaan_list': perusahaan, 'jenis_list': JenisArea.choices, 'mode_list': ModeKalkulasi.choices,
         'filter_qs': filter_qs, 'query': query,
         'week_picker': {'dilihat': f.minggu.isoformat(), 'berjalan': this_monday().isoformat(), 'filter': filter_qs},
-        'peta': _peta(f),
+        'peta': _peta(f), 'garis_waktu': coverage.garis_waktu(f),
     })
 
 

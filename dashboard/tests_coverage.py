@@ -12,7 +12,7 @@ from django.urls import reverse
 from openpyxl import load_workbook
 
 from areakerja import kalkulasi, services
-from areakerja.models import JenisArea, MitraSite
+from areakerja.models import JenisArea, MitraSite, SnapshotCoverage
 from areakerja.tests import setujui_semua
 from cctv.models import CakupanCctv, Cctv, CctvCoverage
 from cctv.snapshot import close_week
@@ -188,6 +188,29 @@ class DashboardCoverageTests(TestCase):
         self.assertIn(f'site={self.site.pk}', data['peta']['lapisan']['tercover'])
         self.assertEqual(self.get('data').json()['peta']['fit'], 'ortho')  # all sites: the orthophoto
         self.assertEqual(self.get('data', self.mitra).status_code, 403)
+
+    def test_timeline_shows_a_year(self):
+        weeks = coverage.garis_waktu(Filter(minggu=W45))  # nothing closed yet: a year of empty weeks
+        past = weeks
+        self.assertEqual((len(past), past[0]['label'], past[-1]['label']), (52, 'W46 2025', 'W45 2026'))
+        self.assertEqual({w['status'] for w in past[:-1]}, {'kosong'})
+        self.assertEqual(past[-1]['status'], 'live')
+
+        self.area()
+        self.cctv('A', square(X, Y, 0.002))
+        self.lock_w45()
+        self.week(W46 + datetime.timedelta(days=7))  # W47: W46 was never closed
+        weeks = {w['w']: w for w in coverage.garis_waktu(Filter.from_query({}))}
+        self.assertEqual([weeks[w]['status'] for w in ('W45', 'W46', 'W47')], ['terkunci', 'kosong', 'live'])
+        self.assertAlmostEqual(weeks['W45']['tercover'], 25.0, delta=0.5)
+        self.assertIsNone(weeks['W46']['tercover'])
+        self.assertEqual((weeks['W45']['bulan'], weeks['W45']['rentang']), (11, '02 Nov – 08 Nov 2026'))
+        self.assertEqual(len(self.get('data').json()['garis_waktu']), 52)
+
+        old = SnapshotCoverage.objects.get(minggu=W45)
+        SnapshotCoverage.objects.create(minggu=W45 - datetime.timedelta(days=7 * 60), site_kode='LMO',
+                                        perusahaan_nama=old.perusahaan_nama, status=SnapshotCoverage.Status.TERKUNCI)
+        self.assertEqual(len(coverage.garis_waktu(Filter.from_query({}))), 63)  # back to the oldest snapshot
 
     def test_export_excel(self):
         self.area()

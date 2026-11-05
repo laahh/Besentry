@@ -1,0 +1,173 @@
+/* WeekTimeline (static/js/week-timeline.js): a transparent week slider meant to sit over a map.
+   Colours are custom properties, so a page can retheme it on the container. */
+.wt {
+  --wt-text: #fff;
+  --wt-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  --wt-line: rgba(255, 255, 255, 0.55);
+  --wt-dot: #1f7a3a;
+  --wt-accent: #71bf45;
+  --wt-button: rgba(255, 255, 255, 0.85);
+  --wt-button-text: #2c323f;
+  --wt-button-off: rgba(200, 204, 200, 0.6);
+  --wt-button-off-text: #8a918c;
+  position: relative;
+  padding: 4px 8px;
+  color: var(--wt-text);
+  text-shadow: var(--wt-shadow);
+  font-size: 12px;
+  outline: none;
+}
+
+.wt-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.wt-spacer { flex: 1; }
+.wt-label { font-weight: 600; white-space: nowrap; }
+
+.wt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--wt-button);
+  color: var(--wt-button-text);
+  text-shadow: none;
+  cursor: pointer;
+}
+
+.wt-btn:disabled {
+  background: var(--wt-button-off);
+  color: var(--wt-button-off-text);
+  cursor: default;
+}
+
+.wt-status {
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  text-shadow: none;
+}
+
+.wt-tone-live { background: #e5f4e4; color: #1f7a3a; }
+.wt-tone-netral { background: rgba(255, 255, 255, 0.85); color: #3d4741; }
+.wt-tone-kosong { background: #f9eeda; color: #8a5a00; }
+
+.wt-view {
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none; /* the line is dragged sideways, also on touch screens */
+  user-select: none;
+}
+
+.wt-view.wt-dragging { cursor: grabbing; }
+
+/* The centre marker: the selected week always sits under it */
+.wt-marker {
+  position: absolute;
+  top: 14px;
+  bottom: 0;
+  left: 50%;
+  z-index: 1;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--wt-accent);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+.wt-rail {
+  display: flex;
+  width: max-content; /* as long as all the weeks, so the line runs to the last one */
+  transition: transform 0.2s ease-out;
+}
+
+.wt-month {
+  flex: 0 0 auto;
+  height: 15px;
+  padding-left: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 11px;
+  border-left: 1px solid var(--wt-line);
+}
+
+.wt-weeks {
+  align-items: center;
+  height: 36px;
+  /* the line the week dots sit on */
+  background: linear-gradient(var(--wt-line), var(--wt-line)) 0 9px / 100% 2px no-repeat;
+}
+
+.wt-tick {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 46px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.wt-tick small { font-size: 11px; }
+
+.wt-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: var(--wt-dot);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.6);
+}
+
+.wt-hollow .wt-dot { background: transparent; }
+.wt-picked .wt-dot { background: var(--wt-accent); transform: scale(1.45); }
+.wt-picked small { font-weight: 600; }
+
+/* Filler weeks before the first and after the last: on the line, faded, never picked */
+.wt-filler { opacity: 0.45; cursor: default; }
+.wt-filler .wt-dot { box-shadow: none; }
+
+/* Calendar popup, above the slider on its right */
+.wt-cal {
+  position: absolute;
+  right: 8px;
+  bottom: calc(100% + 8px);
+  z-index: 3;
+  width: 280px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #fff;
+  color: #2c323f;
+  text-shadow: none;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
+}
+
+.wt-cal[hidden] { display: none; }
+.wt-cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.wt-cal-head .wt-btn { background: #eef0ee; }
+.wt-cal-month { font-weight: 600; }
+.wt-cal table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.wt-cal th, .wt-cal td { padding: 3px 2px; text-align: center; font-size: 12px; }
+.wt-cal th:first-child, .wt-cal td:first-child { width: 44px; font-weight: 600; }
+.wt-cal .wt-other { color: #a3aaa5; }
+.wt-cal tr.wt-can { cursor: pointer; }
+.wt-cal tr.wt-can:hover td { background: #f3f8f1; }
+.wt-cal tr.wt-out td { opacity: 0.4; }
+.wt-cal tr.wt-seen td { background: #e5f4e4; color: #1f7a3a; }

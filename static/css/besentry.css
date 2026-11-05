@@ -893,23 +893,13 @@
   border-top: 1px solid #d9e4d6;
 }
 
-/* Fullscreen takes .peta-wrap (map + panel); the panel shows only there. */
+/* Dashboard Coverage in fullscreen (static/css/fullscreen-panel.css shows .fs-only): the filter and
+   KPI panel top-left, the week time slider (static/css/week-timeline.css) along the bottom. */
 .peta-wrap {
-  position: relative;
-}
-
-.peta-wrap:fullscreen {
-  background: #fff;
-}
-
-.peta-wrap:fullscreen .peta-dashboard {
-  height: 100vh;
-  min-height: 0;
-  border-radius: 0;
+  border-radius: 6px; /* same as the map, so the hover dimming has its corners */
 }
 
 .peta-overlay {
-  display: none;
   position: absolute;
   top: 10px;
   left: 54px;
@@ -920,15 +910,6 @@
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.95);
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.18);
-}
-
-.peta-wrap:fullscreen .peta-overlay {
-  display: block;
-}
-
-.peta-overlay .btn-xs svg {
-  width: 14px;
-  height: 14px;
 }
 
 .overlay-kpi {
@@ -962,4 +943,12 @@
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 6px;
+}
+
+.peta-timeline {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 30px;
+  z-index: 2;
 }

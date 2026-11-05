@@ -28,6 +28,7 @@ from core.models import Perusahaan, Site
 
 LAPISAN = ('tercover', 'potensi', 'tidak')
 TREN_MINGGU = 12
+GARIS_WAKTU_MINGGU = 52  # the timeline shows a year even before every week has numbers
 SIMPLIFY_M = 0.5  # metres; keeps the map light without visibly moving edges
 JENIS_URUT = [value for value, _ in JenisArea.choices]
 
@@ -181,7 +182,33 @@ def _point(minggu, luas, tercover, potensi, tidak):
 
 def tren(f, n=TREN_MINGGU):
     """The `n` weeks up to `f.minggu`, oldest first; a week without numbers has luas 0 and no percent."""
-    weeks = [f.minggu - datetime.timedelta(days=7 * i) for i in reversed(range(n))]
+    return _series(f, [f.minggu - datetime.timedelta(days=7 * i) for i in reversed(range(n))])
+
+
+def garis_waktu(f):
+    """The weeks of the fullscreen timeline, oldest first: at least the last GARIS_WAKTU_MINGGU weeks up
+    to this week, further back when a closed week is older. Each carries its % tercover for the filter
+    and a status (live / terkunci / menunggu / kosong); weeks before any snapshot are simply 'kosong'.
+    The page pads the line with faded weeks on both sides to fit its width (never picked)."""
+    year_ago = this_monday() - datetime.timedelta(days=7 * (GARIS_WAKTU_MINGGU - 1))
+    oldest = SnapshotCoverage.objects.order_by('minggu').values_list('minggu', flat=True).first()
+    first = min(oldest, year_ago) if oldest else year_ago
+    count = (this_monday() - first).days // 7 + 1
+    weeks = [first + datetime.timedelta(days=7 * i) for i in range(count)]
+    waiting = set(SnapshotCoverage.objects.filter(status=SnapshotCoverage.Status.MENUNGGU).values_list('minggu', flat=True))
+    result = []
+    for week, point in zip(weeks, _series(f, weeks)):
+        akhir = week + datetime.timedelta(days=6)
+        status = ('live' if week == this_monday() else 'terkunci' if point['persen']['tercover'] is not None
+                  else 'menunggu' if week in waiting else 'kosong')
+        result.append({'minggu': point['minggu'], 'label': point['label'], 'w': week.strftime('W%V'),
+                       'bulan': week.month, 'tahun': week.year, 'rentang': f'{week:%d %b} – {akhir:%d %b %Y}',
+                       'tercover': point['persen']['tercover'], 'status': status})
+    return result
+
+
+def _series(f, weeks):
+    """Totals for each of `weeks` (Mondays): the locked snapshots, plus the live rows for this week."""
     sums = dict(luas=Sum('luas_ha'), tercover=Sum('tercover_ha'), potensi=Sum('potensi_ha'), tidak=Sum('tidak_ha'))
     locked = _locked(f, weeks)
     if f.jenis:
