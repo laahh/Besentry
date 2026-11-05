@@ -879,3 +879,87 @@
   width: 14px;
   height: 14px;
 }
+
+/* Dashboard Coverage */
+.peta-dashboard {
+  /* The page's main exhibit: most of the screen below the header, never cramped. */
+  height: calc(100vh - 240px);
+  min-height: 620px;
+  border-radius: 6px;
+}
+
+.tabel-coverage .baris-total td {
+  background: #f3f8f1;
+  border-top: 1px solid #d9e4d6;
+}
+
+/* Fullscreen takes .peta-wrap (map + panel); the panel shows only there. */
+.peta-wrap {
+  position: relative;
+}
+
+.peta-wrap:fullscreen {
+  background: #fff;
+}
+
+.peta-wrap:fullscreen .peta-dashboard {
+  height: 100vh;
+  min-height: 0;
+  border-radius: 0;
+}
+
+.peta-overlay {
+  display: none;
+  position: absolute;
+  top: 10px;
+  left: 54px;
+  z-index: 2;
+  width: 520px;
+  max-width: calc(100% - 300px);
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.18);
+}
+
+.peta-wrap:fullscreen .peta-overlay {
+  display: block;
+}
+
+.peta-overlay .btn-xs svg {
+  width: 14px;
+  height: 14px;
+}
+
+.overlay-kpi {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.overlay-kpi > div {
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #f3f6f3;
+  border-left: 3px solid #5f6b63;
+}
+
+.overlay-kpi span {
+  display: block;
+  font-size: 11px;
+  color: #5f6b63;
+}
+
+.overlay-kpi strong {
+  font-size: 18px;
+}
+
+.overlay-kpi .kpi-tercover { border-left-color: #1f7a3a; }
+.overlay-kpi .kpi-potensi { border-left-color: #e8a317; }
+.overlay-kpi .kpi-tidak { border-left-color: #d9493f; }
+
+.overlay-filter {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}

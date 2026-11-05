@@ -1,0 +1,65 @@
+{% comment %}Week picker: a month calendar, one row per week (Monday to Sunday). Needs `week_picker` =
+{dilihat, berjalan, filter} in the context and a button with data-bs-target="#modal-week".{% endcomment %}
+<div class="modal fade" id="modal-week" tabindex="-1" aria-labelledby="modal-week-judul" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-week-judul">Pilih week</h5>
+        <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Tutup"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <button class="btn btn-light btn-sm" type="button" id="kal-prev" aria-label="Bulan sebelumnya"><i data-feather="chevron-left"></i></button>
+          <span class="f-w-600" id="kal-bulan"></span>
+          <button class="btn btn-light btn-sm" type="button" id="kal-next" aria-label="Bulan berikutnya"><i data-feather="chevron-right"></i></button>
+        </div>
+        <table class="table table-sm kalender-week mb-2">
+          <thead><tr><th>Week</th><th>Sen</th><th>Sel</th><th>Rab</th><th>Kam</th><th>Jum</th><th>Sab</th><th>Min</th></tr></thead>
+          <tbody id="kal-body"></tbody>
+        </table>
+        <p class="f-12 text-muted mb-0">Klik baris untuk membuka week tersebut. Hijau = week yang sedang dilihat; tebal = week berjalan.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{{ week_picker|json_script:"data-week" }}
+<script>
+  (() => {
+    const cfg = JSON.parse(document.getElementById('data-week').textContent);
+    const BULAN = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    const parse = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+    const weekNo = (monday) => {  // ISO 8601: the week holding the year's first Thursday is week 1
+      const thursday = addDays(monday, 3);
+      const firstThursday = new Date(thursday.getFullYear(), 0, 4);
+      const firstMonday = addDays(firstThursday, -((firstThursday.getDay() + 6) % 7));
+      return 1 + Math.round((monday - firstMonday) / (7 * 864e5));
+    };
+    const dilihat = cfg.dilihat, berjalan = cfg.berjalan;
+    let bulan = parse(dilihat);
+    bulan = new Date(bulan.getFullYear(), bulan.getMonth(), 1);
+    const body = document.getElementById('kal-body');
+
+    function render() {
+      document.getElementById('kal-bulan').textContent = `${BULAN[bulan.getMonth()]} ${bulan.getFullYear()}`;
+      body.replaceChildren();
+      let monday = addDays(bulan, -((bulan.getDay() + 6) % 7));
+      while (monday.getMonth() === bulan.getMonth() || addDays(monday, 6).getMonth() === bulan.getMonth()) {
+        const key = iso(monday);
+        const row = document.createElement('tr');
+        row.className = (key === dilihat ? 'dilihat ' : '') + (key === berjalan ? 'berjalan' : '');
+        row.innerHTML = `<td class="f-w-600">W${weekNo(monday)}</td>` + Array.from({ length: 7 }, (_, i) => {
+          const day = addDays(monday, i);
+          return `<td class="${day.getMonth() === bulan.getMonth() ? '' : 'text-muted'}">${day.getDate()}</td>`;
+        }).join('');
+        row.addEventListener('click', () => { window.location.search = `?minggu=${key}${cfg.filter ? '&' + cfg.filter : ''}`; });
+        body.append(row);
+        monday = addDays(monday, 7);
+      }
+    }
+    document.getElementById('kal-prev').addEventListener('click', () => { bulan = new Date(bulan.getFullYear(), bulan.getMonth() - 1, 1); render(); });
+    document.getElementById('kal-next').addEventListener('click', () => { bulan = new Date(bulan.getFullYear(), bulan.getMonth() + 1, 1); render(); });
+    render();
+  })();
+</script>
