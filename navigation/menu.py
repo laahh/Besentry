@@ -52,6 +52,7 @@ MAIN_MENU = (
             # Visible to admins and to any role with a CCTV site/perusahaan scope.
             MenuItem('CCTV Database', url_name='cctv:index', check='cctv.access.can_open'),
             MenuItem('Area Kerja', url_name='areakerja:index', check='areakerja.access.can_open'),
+            MenuItem('Dashboard Coverage', url_name='coverage:index', check='dashboard.coverage.can_open'),
             MenuItem('CCTV PJA Dedicated', page='cctv-pja-dedicated'),
             MenuItem('Pengawas Control Room', page='cctv-control-room'),
         )),

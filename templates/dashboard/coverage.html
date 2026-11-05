@@ -1,0 +1,240 @@
+{% extends "layout/base.html" %}
+{% load static %}
+
+{% block title %}Dashboard Coverage{% endblock %}
+{% block page_title %}Dashboard Coverage {{ minggu|date:"\WW o" }}{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item">CCTV Management</li>
+<li class="breadcrumb-item active">Dashboard Coverage</li>
+{% endblock %}
+{% block css %}{% include "layout/maplibre.html" %}{% endblock %}
+{% block page_actions %}
+<div class="d-flex flex-nowrap align-items-center justify-content-sm-end gap-1">
+  <a class="btn btn-light btn-sm" href="?minggu={{ sebelum|date:'Y-m-d' }}{% if filter_qs %}&{{ filter_qs }}{% endif %}" title="Week sebelumnya"><i data-feather="chevron-left"></i></a>
+  <span class="badge badge-light text-dark f-14 text-nowrap">{{ minggu|date:"d M" }} – {{ akhir|date:"d M Y" }}{% if minggu == minggu_ini %} · week berjalan{% endif %}</span>
+  {% if sesudah %}<a class="btn btn-light btn-sm" href="?minggu={{ sesudah|date:'Y-m-d' }}{% if filter_qs %}&{{ filter_qs }}{% endif %}" title="Week berikutnya"><i data-feather="chevron-right"></i></a>
+  {% else %}<span class="btn btn-light btn-sm disabled" aria-disabled="true"><i data-feather="chevron-right"></i></span>{% endif %}
+  <button class="btn btn-light btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#modal-week" title="Pilih week dari kalender"><i data-feather="calendar"></i></button>
+  {% if minggu != minggu_ini %}<a class="btn btn-outline-primary btn-sm text-nowrap" href="?{{ filter_qs }}">Week berjalan</a>{% endif %}
+</div>
+{% endblock %}
+
+{% block content %}
+{% include "partials/messages.html" %}
+
+<div class="row">
+  {% include "dashboard/partials/stat_card.html" with color="primary" icon="video" label="Tercover" value=kpi_teks.tercover %}
+  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="alert-triangle" label="Potensi" value=kpi_teks.potensi %}
+  {% include "dashboard/partials/stat_card.html" with color="primary" icon="eye-off" label="Tidak tercover" value=kpi_teks.tidak %}
+  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="map" label="Luas area (ha)" value=kpi.luas|floatformat:2 %}
+</div>
+
+<div class="info-blok info-blok-tipis mb-3">
+  <i data-feather="info"></i>
+  <span>
+    {% if f.live %}Angka week berjalan, dihitung ulang setiap ada perubahan CCTV, boundary, atau area kerja{% else %}Angka week terkunci (snapshot Senin 00.00 WITA){% endif %}{% if dihitung_pada %} · {% if f.live %}dihitung{% else %}dikunci{% endif %} {{ dihitung_pada|date:"d M Y H:i" }}{% endif %}.
+    {{ kpi.mitra_site }} Mitra Site · mode {% if f.mode == 'milik' %}CCTV milik kontraktor (angka resmi){% else %}semua CCTV (pembanding){% endif %}.
+  </span>
+</div>
+
+<!-- Filters -->
+<div class="card">
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end" id="coverage-filter">
+      <input type="hidden" name="minggu" value="{{ minggu|date:'Y-m-d' }}">
+      <div class="col-xl-2 col-md-4 col-6">
+        <label class="form-label f-12 mb-1" for="f-site">Site</label>
+        <select class="form-select form-select-sm" name="site" id="f-site">
+          <option value="">Semua</option>
+          {% for site in sites %}<option value="{{ site.pk }}"{% if f.site == site.pk %} selected{% endif %}>{{ site.kode }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-xl-3 col-md-4 col-6">
+        <label class="form-label f-12 mb-1" for="f-perusahaan">Kontraktor</label>
+        <select class="form-select form-select-sm" name="perusahaan" id="f-perusahaan">
+          <option value="">Semua</option>
+          {% for p in perusahaan_list %}<option value="{{ p.pk }}"{% if f.perusahaan == p.pk %} selected{% endif %}>{{ p.nama }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-xl-2 col-md-4 col-6">
+        <label class="form-label f-12 mb-1" for="f-mode">Mode</label>
+        <select class="form-select form-select-sm" name="mode" id="f-mode">
+          {% for value, label in mode_list %}<option value="{{ value }}"{% if f.mode == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-xl-2 col-md-4 col-6">
+        <label class="form-label f-12 mb-1" for="f-jenis">Jenis area</label>
+        <select class="form-select form-select-sm" name="jenis" id="f-jenis">
+          <option value="">Semua</option>
+          {% for value, label in jenis_list %}<option value="{{ value }}"{% if f.jenis == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-xl-3 col-md-8 col-12 d-flex flex-wrap gap-2">
+        <button class="btn btn-primary btn-sm text-nowrap" type="submit">Terapkan</button>
+        <a class="btn btn-light btn-sm" href="?minggu={{ minggu|date:'Y-m-d' }}">Reset</a>
+        <a class="btn btn-outline-primary btn-sm text-nowrap" href="{% url 'coverage:export' %}?{{ query }}"><i data-feather="download" class="me-1"></i>Excel</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if menunggu %}
+<div class="alert alert-light-warning f-12" role="status">
+  <strong>{{ menunggu|length }} Mitra Site menunggu area kerja Approved</strong>, belum ada angka untuk week ini:
+  {% for m in menunggu %}{{ m.site }} – {{ m.perusahaan }}{% if not forloop.last %}; {% endif %}{% endfor %}.
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-header pb-0"><h5>Peta coverage <span class="f-12 text-muted f-w-400">· {{ minggu|date:"\WW o" }}</span></h5></div>
+  <div class="card-body">
+    {# Fullscreen takes this wrapper, so the panel below (shown only in fullscreen) comes along with the map. #}
+    <div class="peta-wrap" id="peta-wrap">
+      <div id="peta-coverage" class="peta-dashboard"></div>
+      <div class="peta-overlay" id="peta-overlay">
+        <div class="d-flex align-items-center gap-1 mb-2">
+          <button class="btn btn-light btn-xs" type="button" data-minggu="sebelum" title="Week sebelumnya"><i data-feather="chevron-left"></i></button>
+          <span class="f-w-600 f-12 text-nowrap" data-isi="label">{{ minggu|date:"\WW o" }}</span>
+          <span class="f-12 text-muted text-nowrap" data-isi="rentang">{{ minggu|date:"d M" }} – {{ akhir|date:"d M Y" }}</span>
+          <button class="btn btn-light btn-xs" type="button" data-minggu="sesudah" title="Week berikutnya"{% if not sesudah %} disabled{% endif %}><i data-feather="chevron-right"></i></button>
+        </div>
+        <div class="overlay-kpi mb-2">
+          <div class="kpi-tercover"><span>Tercover</span><strong data-kpi="tercover">{{ kpi_teks.tercover }}</strong></div>
+          <div class="kpi-potensi"><span>Potensi</span><strong data-kpi="potensi">{{ kpi_teks.potensi }}</strong></div>
+          <div class="kpi-tidak"><span>Tidak tercover</span><strong data-kpi="tidak">{{ kpi_teks.tidak }}</strong></div>
+          <div><span>Luas (ha)</span><strong data-kpi="luas">{{ kpi_teks.luas }}</strong></div>
+        </div>
+        <form class="overlay-filter" id="overlay-filter">
+          <input type="hidden" name="minggu" value="{{ minggu|date:'Y-m-d' }}">
+          <select class="form-select form-select-sm" name="site" aria-label="Site">
+            <option value="">Semua site</option>
+            {% for site in sites %}<option value="{{ site.pk }}"{% if f.site == site.pk %} selected{% endif %}>{{ site.kode }}</option>{% endfor %}
+          </select>
+          <select class="form-select form-select-sm" name="perusahaan" aria-label="Kontraktor">
+            <option value="">Semua kontraktor</option>
+            {% for p in perusahaan_list %}<option value="{{ p.pk }}"{% if f.perusahaan == p.pk %} selected{% endif %}>{{ p.nama }}</option>{% endfor %}
+          </select>
+          <select class="form-select form-select-sm" name="mode" aria-label="Mode">
+            {% for value, label in mode_list %}<option value="{{ value }}"{% if f.mode == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+          <select class="form-select form-select-sm" name="jenis" aria-label="Jenis area">
+            <option value="">Semua jenis area</option>
+            {% for value, label in jenis_list %}<option value="{{ value }}"{% if f.jenis == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header pb-0"><h5>Tren 12 week</h5></div>
+  <div class="card-body">
+    <div id="tren-coverage"></div>
+    <p class="f-12 text-muted mb-0">% dari luas area kerja, sampai {{ minggu|date:"\WW o" }}. Week tanpa angka dikosongkan.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header pb-0"><h5>Area kerja yang terpantau CCTV, per kontraktor <span class="f-12 text-muted f-w-400">· rincian tiap jenis area (Pit, Hauling, Infra)</span></h5></div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0 tabel-coverage">
+        <thead>
+          <tr>
+            <th>Site</th><th>Kontraktor</th><th>Jenis area</th>
+            <th class="text-end">Luas (ha)</th><th class="text-end">Tercover</th><th class="text-end">Potensi</th><th class="text-end">Tidak tercover</th>
+            <th>Area week</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for g in tabel %}
+          <tr class="baris-total">
+            <td class="f-w-600 text-nowrap">{{ g.site }}</td>
+            <td class="f-w-600">{{ g.perusahaan }}</td>
+            <td class="f-w-600">Total</td>
+            <td class="text-end f-w-600">{{ g.total.luas|floatformat:2 }}</td>
+            <td class="text-end f-w-600 text-success">{{ g.total.persen.tercover|default_if_none:"-" }}{% if g.total.persen.tercover is not None %}%{% endif %}</td>
+            <td class="text-end f-w-600 text-warning">{{ g.total.persen.potensi|default_if_none:"-" }}{% if g.total.persen.potensi is not None %}%{% endif %}</td>
+            <td class="text-end f-w-600 text-danger">{{ g.total.persen.tidak|default_if_none:"-" }}{% if g.total.persen.tidak is not None %}%{% endif %}</td>
+            <td class="f-12">{{ g.minggu_area_label|default:"-" }}{% if g.fallback %} <span class="text-warning">{{ g.catatan }}</span>{% endif %}</td>
+          </tr>
+          {% for j in g.jenis %}
+          <tr class="f-12">
+            <td></td><td></td>
+            <td>{{ j.label }}</td>
+            <td class="text-end">{{ j.luas|floatformat:2 }}</td>
+            <td class="text-end">{{ j.persen.tercover }}% <span class="text-muted">({{ j.tercover|floatformat:2 }})</span></td>
+            <td class="text-end">{{ j.persen.potensi }}% <span class="text-muted">({{ j.potensi|floatformat:2 }})</span></td>
+            <td class="text-end">{{ j.persen.tidak }}% <span class="text-muted">({{ j.tidak|floatformat:2 }})</span></td>
+            <td class="text-muted">{{ j.jumlah_cctv }} CCTV</td>
+          </tr>
+          {% endfor %}
+          {% empty %}
+          <tr><td colspan="8" class="text-muted">Belum ada angka coverage untuk week dan filter ini.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if tanpa_area %}
+    <p class="f-12 text-muted mt-2 mb-0">Tanpa area kerja week ini ({{ tanpa_area|length }}): {% for g in tanpa_area %}{{ g.site }} – {{ g.perusahaan }}{% if not forloop.last %}; {% endif %}{% endfor %}.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% include "partials/week_picker.html" %}
+{{ peta|json_script:"data-peta" }}
+{{ tren|json_script:"data-tren" }}
+{% endblock %}
+
+{% block scriptcontent %}
+<script src="{% static 'assets/js/chart/apex-chart/apex-chart.js' %}"></script>
+<script type="module">
+  import * as maplibregl from 'maplibre-gl';
+  import { initCoverageMap, drawTren } from 'besentry/dashboard-coverage';
+
+  const peta = initCoverageMap(maplibregl, document.getElementById('peta-coverage'),
+    JSON.parse(document.getElementById('data-peta').textContent), { fullscreen: document.getElementById('peta-wrap') });
+  drawTren(document.getElementById('tren-coverage'), JSON.parse(document.getElementById('data-tren').textContent));
+
+  // The fullscreen panel: changing its filter or week updates the map and KPI in place (a reload would
+  // leave fullscreen). On leaving fullscreen the page reloads once, so the table and trend catch up.
+  const overlay = document.getElementById('peta-overlay');
+  const form = document.getElementById('overlay-filter');
+  let current = null;
+  async function apply() {
+    const query = new URLSearchParams([...new FormData(form)].filter(([, value]) => value));
+    const response = await fetch(`${peta.urls.data}?${query}`, { credentials: 'same-origin' });
+    if (!response.ok || response.redirected) return;
+    current = await response.json();
+    form.minggu.value = current.minggu;
+    overlay.querySelector('[data-isi="label"]').textContent = current.label;
+    overlay.querySelector('[data-isi="rentang"]').textContent = current.rentang;
+    overlay.querySelector('[data-minggu="sesudah"]').disabled = !current.sesudah;
+    Object.entries(current.kpi_teks).forEach(([key, text]) => {
+      const cell = overlay.querySelector(`[data-kpi="${key}"]`);
+      if (cell) cell.textContent = text;
+    });
+    peta.reload(current.peta);
+    history.replaceState(null, '', `?${current.query}`);
+  }
+  form.querySelectorAll('select').forEach((select) => select.addEventListener('change', apply));
+  overlay.querySelectorAll('[data-minggu]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const target = current ? current[button.dataset.minggu] : button.dataset.minggu === 'sebelum'
+        ? "{{ sebelum|date:'Y-m-d' }}" : "{{ sesudah|date:'Y-m-d' }}";
+      if (!target) return;
+      form.minggu.value = target;
+      apply();
+    });
+  });
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && current) window.location.reload();
+  });
+
+  // Selects filter immediately, as on CCTV Database.
+  document.querySelectorAll('#coverage-filter select').forEach((select) => {
+    select.addEventListener('change', () => select.form.submit());
+  });
+</script>
+{% endblock %}

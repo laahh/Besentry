@@ -24,6 +24,7 @@ urlpatterns = [
     path('login/', auth_views.LoginView.as_view(redirect_authenticated_user=True), name='login'),
     path('logout/', auth_views.LogoutView.as_view(), name='logout'),
     path('dashboard/', include('dashboard.urls')),
+    path('cctv/dashboard-coverage/', include('dashboard.coverage_urls')),
     path('admin/', admin.site.urls),
     path('', include('cctv.urls')),
     path('', include('areakerja.urls')),
