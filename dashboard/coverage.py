@@ -320,6 +320,42 @@ def cctv_titik(f):
     return _collection(features)
 
 
+BOUNDARY_SIMPLIFY_DEG = 0.000005  # ~0.5 m around Berau; the boundaries are drawn, not measured, here
+
+
+def cctv_boundary(f):
+    """The CCTV coverage boundaries themselves (one polygon per camera) for week `f.minggu`: as the
+    map shows them this week (cctv.snapshot.boundaries), or as the CCTV snapshot locked them."""
+    if f.live:
+        from cctv.snapshot import boundaries
+
+        geom_of = boundaries()
+        rows = Cctv.objects.filter(pk__in=list(geom_of))
+        if f.site:
+            rows = rows.filter(site_id=f.site)
+        if f.perusahaan:
+            rows = rows.filter(perusahaan_id=f.perusahaan)
+        cameras = [(pk, no, nama, kondisi, status, geom_of[pk])
+                   for pk, no, nama, kondisi, status in rows.values_list('pk', 'no_cctv', 'nama', 'kondisi', 'status')]
+    else:
+        rows = SnapshotMingguan.objects.filter(minggu=f.minggu).exclude(coverage__isnull=True)
+        if f.site:
+            rows = rows.filter(data__site_id=f.site)
+        if f.perusahaan:
+            rows = rows.filter(data__perusahaan_id=f.perusahaan)
+        cameras = [(pk, no, data.get('nama'), data.get('kondisi'), data.get('status'), geom)
+                   for pk, no, data, geom in rows.values_list('cctv_id', 'no_cctv', 'data', 'coverage')]
+    features = []
+    for pk, no, nama, kondisi, status, geom in cameras:
+        if geom is None or geom.empty:
+            continue
+        shape = geom.simplify(BOUNDARY_SIMPLIFY_DEG, preserve_topology=True)
+        features.append({'type': 'Feature', 'geometry': json.loads(shape.geojson), 'properties': {
+            'id': pk, 'no': no, 'nama': nama, 'kondisi': kondisi, 'kelompok': kalkulasi.kelompok(status, kondisi),
+        }})
+    return _collection(features)
+
+
 # --- Filter options -----------------------------------------------------------------------------
 
 def daftar_minggu():
