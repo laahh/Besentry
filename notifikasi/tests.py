@@ -58,7 +58,7 @@ class NotifyTests(TestCase):
         cls.cctv = Cctv.objects.create(no_cctv='LMO-PM-0099', nama='Pit J', site=cls.lmo, perusahaan=cls.perusahaan,
                                        posisi=Point(117.6, 2.2, srid=4326))
         cls.it = User.objects.create_user('it', password='x', email='it@example.com', first_name='Ifa')
-        cls.it.groups.add(Group.objects.get(name=roles.IT_PAMA))
+        cls.it.groups.add(Group.objects.get(name=roles.IT))
 
         lmo_role = Group.objects.create(name='CCTV LMO - PT Pamapersada Nusantara')
         CakupanCctv.objects.create(group=lmo_role, site=cls.lmo, perusahaan=cls.perusahaan)
@@ -127,8 +127,8 @@ class NotifyTests(TestCase):
         Pic.objects.create(nama='Tahap lain', tahap='sgi', no_wa='6281000000006')
         Pic.objects.create(nama='Nonaktif', tahap='safety', no_wa='6281000000007', aktif=False)
         self.notify(self.request('menunggu_safety'))
-        self.assertEqual(set(Notifikasi.objects.values_list('tujuan', flat=True)),
-                         {'6281000000001', '6281000000002', '6281000000003'})
+        # The closest of those covering it; the site and company PICs are its backup.
+        self.assertEqual(set(Notifikasi.objects.values_list('tujuan', flat=True)), {'6281000000003'})
 
     def test_return_to_it_tells_the_it_pic_and_the_submitter(self):
         Pic.objects.create(nama='IT LMO', tahap='it', no_wa='6286666666666', site=self.lmo)
@@ -194,7 +194,7 @@ class NotifyTests(TestCase):
         pengajuan = PengajuanCoverage.objects.create(cctv=cctv, jenis='dipindah', status='menunggu_sgi',
                                                      minggu=datetime.date(2026, 11, 2))
         admin = get_user_model().objects.create_user('admin', password='x')
-        admin.groups.add(Group.objects.get(name=roles.ADMIN_HAZARD_MOTION))
+        admin.groups.add(Group.objects.get(name=roles.ADMIN))
         self.client.force_login(admin)
         response = self.client.post(reverse('cctv:pengajuan_sgi', args=[pengajuan.pk]),
                                     {'aksi': 'mitra', 'catatan': 'Geser'}, follow=True)
@@ -209,7 +209,7 @@ class NotifyTests(TestCase):
 
         self.urlopen.return_value = fonnte_reply(FONNTE_OK)
         admin = get_user_model().objects.create_user('admin', password='x')
-        admin.groups.add(Group.objects.get(name=roles.ADMIN_HAZARD_MOTION))
+        admin.groups.add(Group.objects.get(name=roles.ADMIN))
         self.client.force_login(admin)
         self.client.post(reverse('notifikasi:resend', args=[failed.pk]))
         failed.refresh_from_db()
@@ -235,7 +235,7 @@ DETAIL = {
 class PicPageTests(TestCase):
     def setUp(self):
         self.admin = get_user_model().objects.create_user('admin', password='x')
-        self.admin.groups.add(Group.objects.get(name=roles.ADMIN_HAZARD_MOTION))
+        self.admin.groups.add(Group.objects.get(name=roles.ADMIN))
         self.client.force_login(self.admin)
         self.karyawan = Karyawan.objects.create(sid='S81UT', nama='BUDI SANTOSO', email='budi@beraucoal.co.id',
                                                 no_hp='081234567890', jabatan_struktural='GIS SPECIALIST',
@@ -288,7 +288,8 @@ class PicPageTests(TestCase):
         self.client.post(reverse('notifikasi:pic_list'), {'sid': 'S81UT', 'tahap': 'sgi', 'aktif': 'on'})
         page = self.client.get(reverse('notifikasi:pic_list'))
         self.assertEqual([(label, count) for _, label, count in page.context['tabs']],
-                         [('IT', 0), ('Survey Mitra', 0), ('Survey BC (SGI)', 1), ('Safety BC', 0)])
+                         [('IT', 0), ('Survey Mitra', 0), ('Survey BC (SGI)', 1), ('Safety BC', 0),
+                          ('Mining (Area Kerja)', 0)])
         self.assertEqual((page.context['tab'], page.context['pics']), ('it', []))
         self.assertContains(page, 'Belum ada PIC IT')
 
@@ -364,11 +365,13 @@ class PicAccessTests(TestCase):
     def test_nothing_without_an_assignment(self):
         self.assertFalse(self.scope().can_open)
 
-    def test_survey_bc_and_safety_work_on_every_site(self):
+    def test_survey_bc_and_safety_for_all_sites_work_on_every_site(self):
         self.assign('sgi')
         self.assign('safety')
         scope = self.scope()
-        self.assertTrue(scope.can_review_sgi and scope.can_review_safety and scope.can_open)
+        for cctv in (self.cctv_lmo, self.cctv_smo):
+            self.assertTrue(scope.can_work('sgi', cctv) and scope.can_work('safety', cctv))
+        self.assertTrue(scope.can_open)
         self.assertEqual(scope.filter(Cctv.objects.all()).count(), 2)
 
     def test_survey_mitra_digitises_within_their_site_only(self):
@@ -388,11 +391,11 @@ class PicAccessTests(TestCase):
 
     def test_inactive_or_removed_pic_loses_the_access(self):
         pic = self.assign('sgi', aktif=False)
-        self.assertFalse(self.scope().can_review_sgi)
+        self.assertFalse(self.scope().can_work('sgi', self.cctv_lmo))
         Pic.objects.filter(pk=pic.pk).update(aktif=True)
-        self.assertTrue(self.scope().can_review_sgi)
+        self.assertTrue(self.scope().can_work('sgi', self.cctv_lmo))
         pic.delete()
-        self.assertFalse(self.scope().can_review_sgi)
+        self.assertFalse(self.scope().can_work('sgi', self.cctv_lmo))
 
     def test_stepper_names_the_pic_of_each_stage(self):
         self.assign('sgi')

@@ -15,9 +15,22 @@ def normalise_wa(number):
     return digits
 
 
-class Pic(models.Model):
-    """Who is in charge of one stage of the CCTV change request, for a site and perusahaan.
+def _specificity(pic):
+    """A company in a site, then a company anywhere, then a whole site, then everything."""
+    return 2 * bool(pic.perusahaan_id) + bool(pic.site_id)
 
+
+def most_specific(pics):
+    """Of the PICs covering a place, those closest to it: the others are their backup."""
+    pics = list(pics)
+    best = max(map(_specificity, pics), default=0)
+    return [pic for pic in pics if _specificity(pic) == best]
+
+
+class Pic(models.Model):
+    """Who is in charge of one stage of a request, for a site and perusahaan.
+
+    Mining only verifies work areas; the other stages work on CCTV change requests as well.
     A PIC is told when a request reaches their stage (notifikasi.services) and may work on that
     stage once their employee record has a login (cctv.access.get_scope). An empty site or
     perusahaan means all of them.
@@ -29,6 +42,7 @@ class Pic(models.Model):
         MITRA = 'mitra', 'Survey Mitra'
         SGI = 'sgi', 'Survey BC (SGI)'
         SAFETY = 'safety', 'Safety BC'
+        MINING = 'mining', 'Mining (Area Kerja)'
 
     tahap = models.CharField('Tahap', max_length=10, choices=Tahap.choices)
     # Picked from the employees synced from SID; nama/email/no_wa are copied from it and can be edited.
@@ -83,6 +97,7 @@ class Notifikasi(models.Model):
 
     class Jenis(models.TextChoices):
         PENGAJUAN = 'pengajuan', 'Pengajuan perubahan CCTV'
+        AREA_KERJA = 'area_kerja', 'Pengajuan area kerja'
         # Sent before the change request flow; kept so older rows still read.
         CCTV_BARU = 'cctv_baru', 'CCTV baru'
         REPOSISI = 'reposisi', 'Perubahan lokasi CCTV'

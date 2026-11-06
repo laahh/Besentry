@@ -101,11 +101,11 @@ class TasklistTests(TestCase):
 
     def test_finished_requests_are_not_tasks(self):
         self.request('approved')
-        admin = self.user('admin', roles.ADMIN_HAZARD_MOTION)
+        admin = self.user('admin', roles.ADMIN)
         self.assertEqual(self.task_ids(self.open_page(admin)), [])
 
     def test_admin_sees_every_pic_or_only_their_own(self):
-        admin = self.user('admin', roles.ADMIN_HAZARD_MOTION)
+        admin = self.user('admin', roles.ADMIN)
         self.pic(admin, 'sgi')
         mine = self.request('menunggu_sgi')
         other = self.request('menunggu_safety')
@@ -119,7 +119,7 @@ class TasklistTests(TestCase):
         self.assertEqual(self.task_ids(self.open_page(budi, lihat='semua')), [])
 
     def test_page_has_no_stage_tabs_and_only_admins_can_switch_view(self):
-        admin = self.user('admin', roles.ADMIN_HAZARD_MOTION)
+        admin = self.user('admin', roles.ADMIN)
         budi = self.user('budi')
         self.pic(budi, 'sgi')
         self.request('menunggu_sgi')
@@ -129,7 +129,7 @@ class TasklistTests(TestCase):
         self.assertNotContains(self.open_page(budi), 'Semua PIC')
 
     def test_tasks_are_grouped_per_stage_longest_waiting_first(self):
-        admin = self.user('admin', roles.ADMIN_HAZARD_MOTION)
+        admin = self.user('admin', roles.ADMIN)
         first_sgi = self.request('menunggu_sgi')
         mitra = self.request('return_mitra')
         second_sgi = self.request('menunggu_sgi')
@@ -139,7 +139,7 @@ class TasklistTests(TestCase):
         self.assertEqual([r['p'].pk for r in groups[1]['rows']], [first_sgi.pk, second_sgi.pk])
 
     def test_only_the_selected_stage_starts_open(self):
-        admin = self.user('admin', roles.ADMIN_HAZARD_MOTION)
+        admin = self.user('admin', roles.ADMIN)
         mitra = self.request('menunggu_mitra')
         sgi = self.request('menunggu_sgi')
         page = self.open_page(admin)
@@ -150,7 +150,7 @@ class TasklistTests(TestCase):
 
     def test_upload_many_is_offered_to_survey_mitra_only(self):
         self.request('menunggu_mitra')
-        admin = self.user('admin', roles.ADMIN_HAZARD_MOTION)
+        admin = self.user('admin', roles.ADMIN)
         self.assertContains(self.open_page(admin), 'Upload SHP sekaligus')
         self.request('menunggu_sgi')
         budi = self.user('budi')
@@ -158,7 +158,7 @@ class TasklistTests(TestCase):
         self.assertNotContains(self.open_page(budi), 'Upload SHP sekaligus')
 
     def test_progress_follows_the_selected_task(self):
-        admin = self.user('admin', roles.ADMIN_HAZARD_MOTION)
+        admin = self.user('admin', roles.ADMIN)
         self.pic(admin, 'safety')
         first = self.request('menunggu_mitra')
         second = self.request('menunggu_safety')
@@ -181,7 +181,7 @@ class TasklistTests(TestCase):
         berau_coal = Perusahaan.objects.create(nama='PT Berau Coal BC', kode=Perusahaan.KODE_BERAU_COAL)
         cctv = Cctv.objects.create(no_cctv='LMO-BC-1', nama='Kamera', site=self.lmo, perusahaan=berau_coal)
         PengajuanCoverage.objects.create(cctv=cctv, jenis='dipindah', status='menunggu_sgi')
-        page = self.open_page(self.user('admin', roles.ADMIN_HAZARD_MOTION))
+        page = self.open_page(self.user('admin', roles.ADMIN))
         steps = page.context['steps']
         self.assertEqual([s['label'] for s in steps],
                          ['Input IT', 'Digitasi + Verifikasi Survey BC', 'Review Safety BC', 'Sah & berlaku'])
@@ -189,7 +189,7 @@ class TasklistTests(TestCase):
         self.assertEqual(page.context['rows'][0]['tugas'], 'Digitasi dan verifikasi boundary coverage')
 
     def test_returned_stage_shows_the_note(self):
-        admin = self.user('admin', roles.ADMIN_HAZARD_MOTION)
+        admin = self.user('admin', roles.ADMIN)
         pengajuan = self.request('return_mitra')
         RiwayatPengajuan.objects.create(pengajuan=pengajuan, aksi='dikembalikan', catatan='Geser ke barat')
         page = self.open_page(admin)

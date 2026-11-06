@@ -70,7 +70,7 @@ Dikelola oleh **Survey & Geospatial Information**. Setiap peta di BeSentry menca
 Orthophoto terbaru disajikan sebagai tile oleh TiTiler. Hanya satu orthophoto yang disimpan; publish bulan baru menggantikan yang lama.
 
 1. Salin file mentah (GeoTIFF RGB + band alpha; nomor band alpha dicari otomatis) ke `data/incoming/`.
-2. Buka **Spasial > Orthophoto** (`/orthophoto/`, khusus `admin-hazard-motion`), pilih file dan bulan, klik **Publish**.
+2. Buka **Spasial > Orthophoto** (`/orthophoto/`, khusus `Admin`), pilih file dan bulan, klik **Publish**.
 3. Service `worker` mengonversi ke COG (Web Mercator, JPEG + mask), memeriksa lewat TiTiler, lalu menjadikannya bulan aktif dan menghapus COG lama di `data/cog/`.
 
 File mentah di `data/incoming/` tidak dihapus otomatis. `data/` tidak masuk git maupun image Docker.
@@ -116,14 +116,14 @@ Perusahaan SID dicocokkan ke `Perusahaan` yang sudah ada (dari data CCTV) lewat 
 
 | Siapa | Melihat | Ajukan perubahan | Hapus | IP & password |
 |---|---|---|---|---|
-| Superuser, `admin-hazard-motion` | Semua | Semua | Ya | Superuser saja |
+| Superuser, `Admin` | Semua | Semua | Ya | Superuser saja |
 | Role dengan Coverage CCTV, mis. *CCTV BMO 2 - PT Pamapersada Nusantara* | Hanya Coverage CCTV-nya | Jika Coverage CCTV *Boleh tambah/ubah* | Tidak | Jika juga punya role IT |
-| `hazard-motion-it-pama`, `-it-mtl`, `-it-bc` | Semua (Coverage CCTV bawaan migrasi, bisa dipersempit) | Ya | Ya, dalam Coverage CCTV-nya | Ya, dalam Coverage CCTV-nya |
-| `survey-mitra` (+ role Coverage CCTV) | Hanya Coverage CCTV-nya | Tidak (digitasi boundary) | Tidak | Tidak |
-| `survey-bc`, `safety-approval` | Semua | Tidak (review) | Tidak | Tidak |
+| `IT` | Semua (Coverage CCTV bawaan migrasi, bisa dipersempit) | Ya | Ya, dalam Coverage CCTV-nya | Ya, dalam Coverage CCTV-nya |
+| `Survey Mitra` (+ role Coverage CCTV) | Hanya Coverage CCTV-nya | Tidak (digitasi boundary) | Tidak | Tidak |
+| `Survey BC`, `Safety BC` | Semua | Tidak (review) | Tidak | Tidak |
 | User tanpa Coverage CCTV | Menu tidak tampil, halaman 403 | | | |
 
-Diatur di menu **Pengaturan** (khusus superuser dan `admin-hazard-motion`):
+Diatur di menu **Pengaturan** (khusus superuser dan `Admin`):
 
 - **Role & Akses** (`/pengaturan/role/`): buat, ubah, atau hapus role dan Coverage CCTV-nya, serta buat role otomatis per site + perusahaan. Role bawaan sistem tidak bisa diganti nama atau dihapus.
 - **Pengguna** (`/pengaturan/pengguna/`): cari pengguna, lalu centang role-nya. Admin tidak bisa melepas role admin dari akunnya sendiri.
@@ -157,9 +157,9 @@ python manage.py buat_role_cctv
 | Status | Dikerjakan | Aksi |
 |---|---|---|
 | Draft IT | IT Mitra / IT BC | Isi form + tangkapan layar baru, lalu *Lanjutkan Digitasi* |
-| Waiting Survey Mitra | `survey-mitra` | Gambar boundary di atas orthophoto aktif atau upload SHP (.zip), lalu *Ajukan ke Survey BC* |
-| Waiting Survey BC | `survey-bc` | Checklist 3 poin lengkap: ke Safety. Atau Return to Survey Mitra / Return to IT |
-| Waiting Safety BC | `safety-approval` | Feedback wajib. Checklist 4 poin lengkap: Approved; kurang: Approved with warning. Atau Return to SGI / Return to IT |
+| Waiting Survey Mitra | `Survey Mitra` | Gambar boundary di atas orthophoto aktif atau upload SHP (.zip), lalu *Ajukan ke Survey BC* |
+| Waiting Survey BC | `Survey BC` | Checklist 3 poin lengkap: ke Safety. Atau Return to Survey Mitra / Return to IT |
+| Waiting Safety BC | `Safety BC` | Feedback wajib. Checklist 4 poin lengkap: Approved; kurang: Approved with warning. Atau Return to SGI / Return to IT |
 | Return to IT / Survey Mitra / SGI | pemilik tahap itu | Perbaiki lalu lanjutkan; Return to SGI bisa diteruskan Survey BC ke Safety, Survey Mitra, atau IT |
 
 - Satu CCTV hanya punya satu pengajuan terbuka, dan tidak ada pembatalan: setiap pengajuan berjalan sampai Approved. CCTV dengan pengajuan terbuka tidak bisa dihapus.
@@ -171,11 +171,21 @@ python manage.py buat_role_cctv
 - Daftar CCTV menampilkan status pengajuan terakhir (mis. *Approved W45 2026*) di kolom paling kanan; klik untuk membuka tab yang sesuai. Bisa difilter per status.
 - Tangkapan layar disimpan di `MEDIA_ROOT/coverage/` dan hanya bisa dibuka lewat aplikasi (dicek hak aksesnya).
 
+**Upload CCTV dari Excel** (`/cctv/upload-excel/`, tombol di CCTV Database dan halaman Tambah CCTV): download template, isi satu baris per CCTV (maksimal 500), lalu *Cek file* dan *Proses*. Setiap baris melewati form dan alur yang sama dengan Tambah CCTV. Baris dengan tangkapan layar di ZIP opsional (nama file = No. CCTV) langsung lanjut ke digitasi; yang lain menjadi Draft IT. Password tidak ada di template, dan diisi per CCTV.
+
 **Snapshot mingguan** (service `snapshot`, `python manage.py snapshot_mingguan --tunggu`): setiap Senin 00.00 WITA menyimpan kondisi semua CCTV, boundary, dan status pengajuan ke `SnapshotMingguan` untuk week yang baru ditutup. Week yang sudah ditutup tidak diubah lagi. Jika service mati saat cut-off, week itu ditutup saat service hidup lagi, dengan data saat itu.
+
+**Role dan PIC per site.** Role menyatakan fungsi (`Admin`, `IT`, `Survey Mitra`, `Survey BC`, `Mining BC`, `Safety BC`, `Mitra`); site dan perusahaan diatur di Master PIC dan Coverage CCTV, bukan di nama role. Pemegang role bekerja di semua tempat (Survey Mitra tetap dalam Coverage CCTV-nya); PIC hanya bisa mengerjakan tempatnya sendiri, tapi tetap bisa melihat data site lain. Tugas dan notifikasi dipegang PIC yang paling spesifik: perusahaan di site itu, perusahaan, site, lalu semua site. Tanpa PIC, ke pemegang role.
 
 **Notifikasi** (app `notifikasi`). Setiap langkah pengajuan mengirim WhatsApp (**Fonnte**) dan email ke PIC tahap berikutnya. PIC diatur di menu *Pengaturan > Master PIC*: satu karyawan per tahap (IT, Survey Mitra, Survey BC, Safety BC), dengan cakupan site dan perusahaan (kosong = semua). Tahap tanpa PIC yang cocok jatuh ke user pemegang role tahap itu. Saat Return to IT, IT pengaju selalu ikut diberi tahu. Saat Approved, PIC semua tahap dan IT pengaju diberi tahu beserta feedback Safety. Pengubahan data tanpa perubahan geometri langsung Approved tanpa notifikasi. Jika sebuah langkah tidak punya penerima, user yang mengerjakannya mendapat peringatan. Nomor WA diambil dari data karyawan SID user tersebut, email dari akun atau data karyawan.
 
+**Notifikasi Area Kerja** (`notifikasi/area_kerja.py`). Setiap langkah mengirim WhatsApp dan email: diajukan ke SGI, Mining, dan Safety BC; satu departemen setuju ke departemen yang masih ditunggu dan pengaju; dikembalikan ke pengupload Mitra Site (Survey BC untuk PT Berau Coal) dan pengaju; Approved ke semuanya. PIC Mining diatur di tab Mining pada Master PIC.
+
 **Tasklist** (`/cctv/tasklist/`) menampilkan pengajuan terbuka yang menunggu user yang login, berdampingan dengan progress satu pengajuan. Pemilik tugas mengikuti aturan notifikasi di atas; draft hanya milik pembuatnya, dan admin bisa melihat tugas semua PIC. Tugas dikelompokkan per tahap.
+
+Ikon lonceng di header menampilkan tugas milik user yang login dari kedua daftar (`/cctv/tasklist/lonceng/`, dimuat setelah halaman terbuka dan diperbarui tiap menit). Admin hanya melihat tugas miliknya sendiri, bukan tugas semua PIC.
+
+Tasklist punya dua daftar: **Coverage CCTV** dan **Area Kerja**. Di Area Kerja, draft milik pembuatnya, pengajuan yang dikembalikan menjadi tugas pengupload (Survey Mitra, atau Survey BC untuk PT Berau Coal), dan Verifikasi BC menjadi tugas tiap departemen yang belum menyetujui. Kartu statistik dan tabel SLA per tahap dihitung dari riwayat pengajuan (waktu kalender). Pengajuan area kerja hasil impor tidak ikut rata-rata SLA.
 
 **Upload SHP sekaligus** (`/cctv/tasklist/upload-shp/`) mengerjakan banyak tugas digitasi dengan satu shapefile: satu polygon per CCTV dalam UTM 50N, dengan kolom `no_cctv` berisi nomor CCTV. *Cek file* menampilkan hasil per CCTV tanpa menyimpan; *Kirim* meneruskan yang lolos ke Survey BC dan yang lain tetap di Survey Mitra. Penerima mendapat satu pesan ringkasan per upload.
 
@@ -227,7 +237,7 @@ Menu disalin dari sidebar `/maps` di BeSentry Laravel (`resources/views/layouts/
 | `navigation/pages.py` | Halaman yang belum dimigrasikan: URL, judul, dan nama route Laravel padanannya |
 | `navigation/roles.py` | Nama role (Django Group) yang sama dengan role Laravel |
 
-Role dibuat otomatis oleh migrasi: `admin-hazard-motion`, `hazard-motion-it-pama`, `hazard-motion-it-mtl`, `mitra-only`. Atur keanggotaannya di Admin > Groups. Superuser melihat semua menu.
+Role dibuat otomatis oleh migrasi: `Admin`, `IT`, `Survey Mitra`, `Survey BC`, `Mining BC`, `Safety BC`, `Mitra`. Atur keanggotaannya di Admin > Groups. Superuser melihat semua menu.
 
 Saat sebuah halaman sudah dibuat, ganti `page='...'` di `menu.py` menjadi `url_name='app:view'`, lalu hapus entrinya dari `pages.py`. `python manage.py test navigation` akan memeriksa link, ikon, dan aturan menu aktif.
 

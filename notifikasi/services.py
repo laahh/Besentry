@@ -2,8 +2,8 @@
 
     notify_pengajuan(pengajuan, user)   # after every step of the flow (cctv.coverage)
 
-The master PIC (notifikasi.models.Pic) says who that is: the stage's PICs whose site and perusahaan
-match the CCTV. A stage nobody is assigned to falls back to the users holding its role, so no
+The master PIC (notifikasi.models.Pic) says who that is: the stage's PICs closest to the CCTV's site
+and perusahaan. A stage nobody is assigned to falls back to the users holding its role, so no
 request goes unnoticed. On Return to IT, the IT user who submitted is always told as well. Once the
 request is approved, everyone involved is told: every stage, and the IT user who submitted.
 
@@ -24,7 +24,7 @@ from django.utils import timezone
 from navigation import roles
 
 from . import channels
-from .models import Notifikasi, Pic, normalise_wa
+from .models import Notifikasi, Pic, most_specific, normalise_wa
 
 logger = logging.getLogger(__name__)
 
@@ -37,17 +37,25 @@ STATUS_TAHAP = {
     'menunggu_safety': Pic.Tahap.SAFETY,
     'return_it': Pic.Tahap.IT,
 }
+# The stages of a CCTV request; Mining only verifies work areas (notifikasi.area_kerja).
+CCTV_TAHAP = (Pic.Tahap.IT, Pic.Tahap.MITRA, Pic.Tahap.SGI, Pic.Tahap.SAFETY)
 FINISHED = ('approved', 'approved_warning')
 BATCH_LISTED = 30  # CCTV numbers named in one message; WhatsApp messages should stay readable
 
 
 def pics_for(cctv, tahap=None):
-    """The active PICs covering this CCTV's site and perusahaan, of one stage or of all."""
+    """The active PICs holding this CCTV's or Mitra Site's place, of one stage or of all: a PIC of the
+    company comes before a PIC of the whole site, who is told only when the company has none."""
     pics = Pic.objects.filter(aktif=True).filter(
         Q(site__isnull=True) | Q(site_id=cctv.site_id),
         Q(perusahaan__isnull=True) | Q(perusahaan_id=cctv.perusahaan_id),
     )
-    return pics.filter(tahap=tahap) if tahap else pics
+    if tahap:
+        return most_specific(pics.filter(tahap=tahap))
+    per_stage = {}
+    for pic in pics:
+        per_stage.setdefault(pic.tahap, []).append(pic)
+    return [pic for stage in per_stage.values() for pic in most_specific(stage)]
 
 
 def _users(role):
@@ -65,7 +73,7 @@ def _contacts(user):
 def recipients(pengajuan):
     """[(Pic or None, WhatsApp, email)] for the stage the request just reached, or all stages when done."""
     finished = pengajuan.status in FINISHED
-    stages = Pic.Tahap.values if finished else [STATUS_TAHAP[pengajuan.status]]
+    stages = CCTV_TAHAP if finished else [STATUS_TAHAP[pengajuan.status]]
     pics, users = [], []
     for tahap in stages:
         stage_pics = list(pics_for(pengajuan.cctv, tahap))
@@ -193,7 +201,7 @@ def _batch_message(pengajuan, numbers, user):
         '',
         f'Oleh: {who}, {timezone.localtime():%d %b %Y %H:%M} WITA',
         '',
-        TODO.get(pengajuan.status, 'Detail pengajuan:'),
+        (pengajuan.gabung and TODO_GABUNG.get(pengajuan.status)) or TODO.get(pengajuan.status, 'Detail pengajuan:'),
         settings.SITE_URL.rstrip('/') + reverse('cctv:tasklist'),
     ])
 
@@ -202,7 +210,7 @@ def notify_test(pic, user):
     """A test message to one PIC on every channel they have."""
     judul = '[BeSentry] Tes notifikasi'
     pesan = (f'Halo {pic.nama}, ini pesan tes dari BeSentry.\n'
-             f'Notifikasi pengajuan perubahan CCTV tahap {pic.get_tahap_display()} akan dikirim ke nomor/email ini.')
+             f'Notifikasi pengajuan tahap {pic.get_tahap_display()} akan dikirim ke nomor/email ini.')
     rows = [
         Notifikasi(pic=pic, kanal=kanal, tujuan=tujuan, jenis=Notifikasi.Jenis.TES, judul=judul, pesan=pesan,
                    dipicu_oleh=user)

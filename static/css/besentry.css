@@ -19,6 +19,35 @@
   color: #fff;
 }
 
+/* Viho colours a hovered menu exactly like the current page, so two menus look selected at once. */
+.page-wrapper.compact-wrapper .page-body-wrapper header.main-nav .main-navbar .nav-menu > li .nav-link:hover:not(.active) {
+  background-color: rgb(36 105 92 / 10%);
+  color: #24695c;
+}
+
+.page-wrapper.compact-wrapper .page-body-wrapper header.main-nav .main-navbar .nav-menu > li .nav-link:hover:not(.active) span,
+.page-wrapper.compact-wrapper .page-body-wrapper header.main-nav .main-navbar .nav-menu > li .nav-link:hover:not(.active) .according-menu i {
+  color: #24695c;
+}
+
+.page-wrapper.compact-wrapper .page-body-wrapper header.main-nav .main-navbar .nav-menu > li .nav-link:hover:not(.active) svg {
+  color: #24695c !important;
+}
+
+.dark-only .page-wrapper.compact-wrapper .page-body-wrapper header.main-nav .main-navbar .nav-menu > li .nav-link:hover:not(.active) {
+  background-color: rgb(208 239 233 / 10%);
+  color: #d0efe9;
+}
+
+.dark-only .page-wrapper.compact-wrapper .page-body-wrapper header.main-nav .main-navbar .nav-menu > li .nav-link:hover:not(.active) span,
+.dark-only .page-wrapper.compact-wrapper .page-body-wrapper header.main-nav .main-navbar .nav-menu > li .nav-link:hover:not(.active) .according-menu i {
+  color: #d0efe9;
+}
+
+.dark-only .page-wrapper.compact-wrapper .page-body-wrapper header.main-nav .main-navbar .nav-menu > li .nav-link:hover:not(.active) svg {
+  color: #d0efe9 !important;
+}
+
 /* Viho ships a placeholder bg.jpg; use the theme colours instead */
 .profile-greeting {
   background-image: linear-gradient(135deg, #24695c 0%, #1b4c43 60%, #ba895d 140%) !important;
@@ -294,6 +323,46 @@
   color: #999;
 }
 
+/* The bell in the header: the user's own tasks (static/js/lonceng.js) */
+.notification-box {
+  position: relative;
+}
+.lonceng-jumlah {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #d22d3d;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.lonceng-jumlah[hidden] {
+  display: none;
+}
+#notification-list {
+  width: 320px;
+  max-height: 440px;
+  overflow-y: auto;
+}
+#notification-list .lonceng-item a {
+  display: block;
+  color: inherit;
+}
+#notification-list .lonceng-item:hover {
+  background: #f3f7f6;
+}
+.dark-only #notification-list .lonceng-item:hover {
+  background: transparent;
+}
+#notification-list .lonceng-semua {
+  text-align: center;
+}
+
 .notification-dropdown .noti-empty {
   padding: 12px 0;
   text-align: center;
@@ -503,6 +572,27 @@
 }
 .tugas-item .btn {
   flex: none;
+}
+
+/* The two lists of the Tasklist: not a sidebar item, so the theme's nav-link colours do not apply. */
+.tasklist-jenis {
+  gap: 8px;
+}
+.tasklist-jenis .nav-link {
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: #eef1f2;
+  color: #2c323f;
+  font-size: 13px;
+  font-weight: 600;
+}
+.tasklist-jenis .nav-link.active {
+  background: #24695c;
+  color: #fff;
+}
+.dark-only .tasklist-jenis .nav-link:not(.active) {
+  background: transparent;
+  color: #d0efe9;
 }
 
 /* Warning Safety on the CCTV page: unticked checklist and Safety's note, side by side. */

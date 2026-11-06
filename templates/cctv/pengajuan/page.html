@@ -15,6 +15,8 @@
 {% if p.minggu %}<span class="badge badge-light text-dark f-14">{{ p.minggu_label }}</span>{% endif %}
 <span class="badge verif-jenis verif-jenis-{{ p.jenis }}">{{ p.get_jenis_display }}</span>
 {% else %}
+<a class="btn btn-outline-primary btn-sm" href="{% url 'cctv:template_excel' %}"><i data-feather="download"></i>Download template</a>
+<a class="btn btn-primary btn-sm" href="{% url 'cctv:upload_excel' %}"><i data-feather="upload"></i>Upload Excel</a>
 <span class="badge badge-light text-dark f-14">CCTV baru · belum disimpan</span>
 {% endif %}
 {% endblock %}

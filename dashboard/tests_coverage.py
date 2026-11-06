@@ -106,8 +106,8 @@ class DashboardCoverageTests(TestCase):
                 self.assertEqual(self.get('cctv', user).status_code, status)
         labels = lambda user: {item['title'] for section in build_menu(user) for top in section['items']
                                for item in (top['children'] or [top])}
-        self.assertIn('Dashboard Coverage', labels(self.survey_bc))
-        self.assertNotIn('Dashboard Coverage', labels(self.mitra))
+        self.assertIn('Dashboard', labels(self.survey_bc))
+        self.assertNotIn('Dashboard', labels(self.mitra))
 
     def test_running_week_reads_the_live_numbers(self):
         self.area()

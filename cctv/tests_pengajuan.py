@@ -66,7 +66,7 @@ class FlowMixin:
         CctvSpec.objects.create(cctv=cls.cctv, radius_m=300, azimuth_deg=135)
 
         cls.it = User.objects.create_user('it', password='x')
-        cls.it.groups.add(Group.objects.get(name=roles.IT_PAMA))
+        cls.it.groups.add(Group.objects.get(name=roles.IT))
         lmo = Group.objects.create(name='CCTV LMO - PT Pamapersada Nusantara')
         CakupanCctv.objects.create(group=lmo, site=cls.site, perusahaan=cls.perusahaan)
         smo = Group.objects.create(name='CCTV SMO - PT Pamapersada Nusantara')

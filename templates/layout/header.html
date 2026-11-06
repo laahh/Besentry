@@ -25,14 +25,14 @@
     <div class="nav-right col pull-right right-menu p-0">
       <ul class="nav-menus">
         <li><a class="text-dark" href="#!" onclick="toggleFullScreen()" title="Layar penuh"><i data-feather="maximize"></i></a></li>
-        <li class="onhover-dropdown">
-          <div class="notification-box"><i data-feather="bell"></i></div>
+        <li class="onhover-dropdown" data-lonceng-url="{% url 'cctv:tasklist_lonceng' %}">
+          <div class="notification-box"><i data-feather="bell"></i><span class="lonceng-jumlah" hidden></span></div>
           <ul class="notification-dropdown onhover-show-div" id="notification-list">
             <li>
-              <p class="f-w-700 mb-0">Notifikasi</p>
+              <p class="f-w-700 mb-0">Tugas saya</p>
             </li>
             <li class="noti-empty">
-              <p class="mb-0 text-muted">Belum ada notifikasi</p>
+              <p class="mb-0 text-muted">Memuat...</p>
             </li>
           </ul>
         </li>

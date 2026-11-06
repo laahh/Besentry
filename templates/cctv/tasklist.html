@@ -18,6 +18,28 @@
 {% block content %}
 {% include "partials/messages.html" %}
 
+<ul class="nav nav-pills tasklist-jenis mb-3">
+  <li class="nav-item"><a class="nav-link{% if jenis == 'cctv' %} active{% endif %}" href="{% querystring jenis='cctv' p=None %}">Coverage CCTV <span class="badge badge-light text-dark">{{ jumlah_tugas.cctv }}</span></a></li>
+  <li class="nav-item"><a class="nav-link{% if jenis == 'area' %} active{% endif %}" href="{% querystring jenis='area' p=None %}">Area Kerja <span class="badge badge-light text-dark">{{ jumlah_tugas.area }}</span></a></li>
+</ul>
+
+<div class="row">
+  {% include "dashboard/partials/stat_card.html" with col="col-sm-6 col-lg-4" color="primary" icon="layers" label="Total pengajuan" value=statistik.total %}
+  {% include "dashboard/partials/stat_card.html" with col="col-sm-6 col-lg-4" color="secondary" icon="inbox" label="Masih open" value=statistik.open %}
+  {% include "dashboard/partials/stat_card.html" with col="col-sm-6 col-lg-4" color="primary" icon="user-check" label="Tugas saya" value=statistik.tugas_saya %}
+  {% include "dashboard/partials/stat_card.html" with col="col-sm-6 col-lg-4" color="secondary" icon="rotate-ccw" label="Dikembalikan" value=statistik.dikembalikan %}
+  {% include "dashboard/partials/stat_card.html" with col="col-sm-6 col-lg-4" color="primary" icon="check-circle" label=statistik.selesai_label value=statistik.selesai %}
+  {% if statistik.terlama %}
+  {% include "dashboard/partials/stat_card.html" with col="col-sm-6 col-lg-4" color="secondary" icon="clock" label="Terlama: "|add:statistik.terlama_nama value=statistik.terlama %}
+  {% else %}
+  {% include "dashboard/partials/stat_card.html" with col="col-sm-6 col-lg-4" color="secondary" icon="clock" label="Terlama menunggu" value="-" %}
+  {% endif %}
+</div>
+
+{% if belum_upload %}
+<p class="f-12 text-muted">{{ belum_upload }} Mitra Site belum membuat pengajuan minggu ini. <a href="{% url 'areakerja:index' %}">Lihat Area Kerja</a></p>
+{% endif %}
+
 <div class="row">
   <div class="col-xl-8">
     <div class="card">
@@ -28,23 +50,23 @@
         {% for group in groups %}
         <details class="tugas-grup"{% if group.buka %} open{% endif %}>
           <summary>
-            <span class="tugas-grup-judul">{{ group.label }} <span class="f-12 text-muted">({{ group.rows|length }})</span></span>
+            <span class="tugas-grup-judul">{{ group.label }} <span class="f-12 text-muted">({{ group.rows|length }}) · terlama {{ group.terlama }}</span></span>
             {% if group.key == 'mitra' and can_upload_many %}<a class="btn btn-outline-primary btn-xs" href="{% url 'cctv:digitasi_massal' %}">Upload SHP sekaligus</a>{% endif %}
           </summary>
           <div class="tugas-grup-isi">
             {% for row in group.rows %}
             <div class="tugas-item{% if row.p.pk == selected.pk %} dipilih{% endif %}">
-              <a class="tugas-link" href="{% querystring p=row.p.pk %}">
+              <a class="tugas-link" href="{% querystring jenis=jenis p=row.p.pk %}">
                 <span class="d-flex flex-wrap align-items-center gap-2">
-                  <span class="f-w-600">{{ row.p.no_cctv }}</span>
-                  <span class="badge badge-{{ row.p.badge }}{% if row.p.badge == 'light' %} text-dark{% endif %}">{{ row.p.get_status_display }}</span>
+                  <span class="f-w-600">{{ row.judul }}</span>
+                  <span class="badge badge-{{ row.badge }}{% if row.badge == 'light' %} text-dark{% endif %}">{{ row.status }}</span>
                 </span>
                 <span class="d-block mt-1">{{ row.tugas }}</span>
                 <span class="d-block f-12 text-muted mt-1">
-                  {% if row.p.cctv_id %}{{ row.p.cctv.site.kode }} · {{ row.p.cctv.perusahaan.nama }} · {% endif %}{% if row.pics %}PIC: {{ row.pics|join:", " }} · {% endif %}{% if row.p.minggu %}{{ row.p.minggu_label }} · {% endif %}{{ row.p.diubah|timesince }} lalu
+                  {% if row.lokasi %}{{ row.lokasi }} · {% endif %}{% if row.pics %}PIC: {{ row.pics|join:", " }} · {% endif %}{% if row.minggu %}{{ row.minggu }} · {% endif %}Di tahap ini {{ row.di_tahap }}
                 </span>
               </a>
-              <a class="btn btn-primary btn-xs" href="{% url 'cctv:pengajuan' row.p.pk %}">Buka</a>
+              <a class="btn btn-primary btn-xs" href="{{ row.url }}">Buka</a>
             </div>
             {% endfor %}
           </div>
@@ -54,13 +76,41 @@
         {% endfor %}
       </div>
     </div>
+
+    <div class="card">
+      <div class="card-header pb-0">
+        <h5>SLA per tahap</h5>
+        <p class="f-12 text-muted mb-0 mt-1">Waktu kalender, termasuk saat pengajuan kembali ke tahap yang sama.</p>
+      </div>
+      <div class="card-body">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle cctv-table mb-0">
+            <thead>
+              <tr><th>Tahap</th><th>Open</th><th>Dikembalikan</th><th>Rata-rata berjalan</th><th>Terlama</th><th>Rata-rata selesai</th></tr>
+            </thead>
+            <tbody>
+              {% for row in sla_tahap %}
+              <tr>
+                <td class="{% if row.sub %}ps-4 text-muted{% else %}f-w-600{% endif %}">{{ row.label }}</td>
+                <td>{{ row.open }}</td>
+                <td>{{ row.dikembalikan|default_if_none:"-" }}</td>
+                <td class="text-nowrap">{{ row.rata_tunggu|default:"-" }}</td>
+                <td class="text-nowrap">{{ row.terlama|default:"-" }}</td>
+                <td class="text-nowrap">{{ row.rata_selesai|default:"-" }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="col-xl-4">
     <div class="card">
       <div class="card-header pb-0">
         <h5>Progress</h5>
-        {% if selected %}<p class="f-12 text-muted mb-0 mt-1">{{ selected.no_cctv }} · {{ selected.get_jenis_display }}</p>{% endif %}
+        {% if selected %}<p class="f-12 text-muted mb-0 mt-1">{{ selected_judul }}</p>{% endif %}
       </div>
       <div class="card-body">
         {% if steps %}
@@ -71,6 +121,8 @@
             <div class="progres-isi">
               <div class="progres-judul">{{ step.label }}</div>
               {% if step.tugas %}<div class="progres-keterangan">{{ step.tugas }}</div>{% endif %}
+              {% if step.durasi %}<div class="progres-keterangan f-w-600">{% if step.aktif %}Berjalan{% else %}Durasi{% endif %}: {{ step.durasi }}</div>{% endif %}
+              {% for line in step.detail %}<div class="progres-keterangan">{{ line }}</div>{% endfor %}
               {% if step.catatan %}<div class="progres-keterangan text-danger">Catatan: {{ step.catatan }}</div>{% endif %}
               {% if step.oleh %}<div class="progres-keterangan">{{ step.oleh.user|nama_user:"Sistem" }}, {{ step.oleh.waktu|date:"d M H:i" }}</div>
               {% elif step.punya_pic and not step.selesai %}<div class="progres-keterangan">{% if step.pics %}PIC: {{ step.pics|join:", " }}{% else %}Belum ada PIC{% endif %}</div>{% endif %}

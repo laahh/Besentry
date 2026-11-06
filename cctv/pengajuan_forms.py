@@ -4,6 +4,8 @@ from .models import PengajuanCoverage
 
 SCREENSHOT_MAX_MB = 5
 SHP_ZIP_MAX_MB = 20
+EXCEL_MAX_MB = 5
+SCREENSHOT_ZIP_MAX_MB = 200
 # File signatures, so only real images are stored (no Pillow needed).
 IMAGE_SIGNATURES = (b'\x89PNG\r\n\x1a\n', b'\xff\xd8\xff')
 WEBP = (b'RIFF', b'WEBP')
@@ -128,6 +130,31 @@ class DigitasiMassalForm(CekGeometriForm):
         widget=forms.ClearableFileInput(attrs={'accept': '.zip', 'class': 'form-control'}),
     )
     aksi = forms.ChoiceField(choices=(('cek', 'Cek file'), ('kirim', 'Kirim ke Survey BC')))
+
+
+class UploadExcelForm(forms.Form):
+    """A filled template, and optionally a zip of screenshots named after the CCTV."""
+    file_excel = forms.FileField(
+        label='File Excel (.xlsx)',
+        widget=forms.ClearableFileInput(attrs={'accept': '.xlsx', 'class': 'form-control'}),
+    )
+    file_gambar = forms.FileField(
+        label='Tangkapan layar (.zip)', required=False,
+        widget=forms.ClearableFileInput(attrs={'accept': '.zip', 'class': 'form-control'}),
+    )
+    aksi = forms.ChoiceField(choices=(('cek', 'Cek file'), ('proses', 'Proses')))
+
+    def clean_file_excel(self):
+        upload = self.cleaned_data['file_excel']
+        if upload.size > EXCEL_MAX_MB * 1024 * 1024:
+            raise forms.ValidationError(f'Maksimal {EXCEL_MAX_MB} MB.')
+        return upload
+
+    def clean_file_gambar(self):
+        upload = self.cleaned_data.get('file_gambar')
+        if upload and upload.size > SCREENSHOT_ZIP_MAX_MB * 1024 * 1024:
+            raise forms.ValidationError(f'Maksimal {SCREENSHOT_ZIP_MAX_MB} MB.')
+        return upload
 
 
 class ReviewForm(forms.Form):

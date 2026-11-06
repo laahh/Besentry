@@ -1,11 +1,12 @@
 from django.urls import path
 
-from . import digitasi_massal_views, pengajuan_views, tasklist_views, views
+from . import digitasi_massal_views, pengajuan_views, tasklist_views, upload_excel_views, views
 
 app_name = 'cctv'
 
 urlpatterns = [
     path('cctv/tasklist/', tasklist_views.tasklist, name='tasklist'),
+    path('cctv/tasklist/lonceng/', tasklist_views.lonceng, name='tasklist_lonceng'),
     path('cctv/tasklist/upload-shp/', digitasi_massal_views.digitasi_massal, name='digitasi_massal'),
     path('cctv/database/', views.index, name='index'),
     path('cctv/database/peta.geojson', views.geojson, name='geojson'),
@@ -16,6 +17,8 @@ urlpatterns = [
     path('cctv/database/<int:pk>/password/', views.password, name='password'),
     path('cctv/database/<int:pk>/ajukan/', pengajuan_views.ajukan, name='ajukan'),
     path('cctv/pengajuan/baru/', pengajuan_views.baru, name='pengajuan_baru'),
+    path('cctv/upload-excel/', upload_excel_views.upload_excel, name='upload_excel'),
+    path('cctv/upload-excel/template.xlsx', upload_excel_views.template_excel, name='template_excel'),
     path('cctv/pengajuan/<int:pk>/', pengajuan_views.page, name='pengajuan'),
     path('cctv/pengajuan/<int:pk>/it/', pengajuan_views.it, name='pengajuan_it'),
     path('cctv/pengajuan/<int:pk>/mitra/', pengajuan_views.mitra, name='pengajuan_mitra'),

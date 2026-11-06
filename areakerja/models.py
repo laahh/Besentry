@@ -72,6 +72,10 @@ class PengajuanAreaKerja(models.Model):
     BADGE = {
         Status.DRAFT: 'light', Status.MENUNGGU_SGI: 'info', Status.RETURN_MITRA: 'warning', Status.APPROVED: 'success',
     }
+    # Which tab of the request page works on each status.
+    TAHAP = {
+        Status.DRAFT: 'pengajuan', Status.RETURN_MITRA: 'pengajuan', Status.MENUNGGU_SGI: 'sgi', Status.APPROVED: 'selesai',
+    }
 
     mitra_site = models.ForeignKey(MitraSite, on_delete=models.PROTECT, related_name='pengajuan_area')
     minggu = models.DateField(help_text='Hari Senin pada week yang diajukan.')
@@ -103,6 +107,14 @@ class PengajuanAreaKerja(models.Model):
     @property
     def badge(self):
         return self.BADGE[self.status]
+
+    @property
+    def tahap(self):
+        return self.TAHAP[self.status]
+
+    @property
+    def terbuka(self):
+        return self.status != self.Status.APPROVED
 
     @property
     def gabung(self):

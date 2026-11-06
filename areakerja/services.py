@@ -10,7 +10,7 @@ counts for a week. The uploader is the Mitra, or Survey BC for PT Berau Coal's o
     area_berlaku(mitra_site, w)  the area that counts for week w: that week's Approved request,
                                  else the last Approved one before it (a fallback, with a note)
 
-Every step sends `area_kerja_berubah` (see signals.py) so notifications can hook in.
+Every step sends `area_kerja_berubah` (see signals.py); notifikasi.area_kerja tells people about it.
 """
 
 import datetime
@@ -96,8 +96,8 @@ def _log(pengajuan, aksi, user=None, catatan='', sebelum=None):
     RiwayatAreaKerja.objects.create(pengajuan=pengajuan, aksi=aksi, user=user, catatan=catatan, sebelum=sebelum or {})
 
 
-def _signal(pengajuan, user, aksi):
-    area_kerja_berubah.send(sender=PengajuanAreaKerja, pengajuan=pengajuan, user=user, aksi=aksi)
+def _signal(pengajuan, user, aksi, **extra):
+    area_kerja_berubah.send(sender=PengajuanAreaKerja, pengajuan=pengajuan, user=user, aksi=aksi, **extra)
 
 
 def request_for(mitra_site, user):
@@ -198,6 +198,8 @@ def verifikasi(pengajuan, user, *, departemen, aksi, catatan=''):
         pengajuan.save()
         _log(pengajuan, Aksi.DISETUJUI, None, 'SGI, Mining, dan Safety BC menyetujui')
         _signal(pengajuan, user, Aksi.DISETUJUI)
+    else:
+        _signal(pengajuan, user, Aksi.VERIFIKASI, departemen=label)
     return pengajuan
 
 

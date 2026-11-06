@@ -15,7 +15,7 @@
     <div class="card">
       <div class="card-header pb-0">
         <h5>PIC per tahap</h5>
-        <p class="f-12 text-muted mb-0 mt-1">PIC menerima WhatsApp dan email saat pengajuan masuk ke tahapnya, dan bisa mengerjakan tahap itu setelah login dengan SID-nya. Tahap tanpa PIC diberitahukan ke semua user berole tahap tersebut.</p>
+        <p class="f-12 text-muted mb-0 mt-1">PIC menerima WhatsApp dan email saat pengajuan masuk ke tahapnya, dan bisa mengerjakan tahap itu setelah login dengan SID-nya. Tugas dipegang PIC yang <strong>paling spesifik</strong>: PIC perusahaan di site itu, lalu PIC perusahaan, lalu PIC site, lalu PIC semua site. Tanpa PIC, tugas ke semua user berole tahap tersebut. Tab Mining hanya berlaku untuk Verifikasi BC area kerja.</p>
         <ul class="nav nav-tabs border-tab mt-3">
           {% for value, label, jumlah in tabs %}
           <li class="nav-item"><a class="nav-link{% if value == tab %} active{% endif %}" href="?tab={{ value }}">{{ label }} <span class="f-12 text-muted">({{ jumlah }})</span></a></li>
@@ -53,6 +53,23 @@
         </div>
         {% else %}
         <p class="empty-state mb-0">Belum ada PIC {{ tab_label }}. Notifikasi tahap ini dikirim ke semua user berole tersebut.</p>
+        {% endif %}
+
+        {% if tanpa_pic.jumlah %}
+        <details class="tugas-grup mt-3">
+          <summary><span class="tugas-grup-judul">Belum punya PIC <span class="f-12 text-muted">({{ tanpa_pic.jumlah }} dari {{ tanpa_pic.total }} pasangan site dan perusahaan)</span></span></summary>
+          <div class="tugas-grup-isi">
+            <table class="table table-sm align-middle cctv-table mb-0">
+              <tbody>
+                {% for row in tanpa_pic.site %}
+                <tr><td class="f-w-600 text-nowrap">{{ row.site }}</td><td class="f-12">{{ row.perusahaan|join:", " }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+        {% elif tanpa_pic.total %}
+        <p class="f-12 text-muted mt-3 mb-0">Semua site dan perusahaan sudah punya PIC {{ tab_label }}.</p>
         {% endif %}
       </div>
     </div>

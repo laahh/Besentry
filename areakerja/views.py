@@ -17,6 +17,7 @@ from django.views.decorators.http import require_POST
 from cctv.access import get_scope
 from cctv.coverage import GeometryError, ReviewError, this_monday
 from cctv.models import Cctv
+from cctv.pengajuan_views import _report_sent
 from cctv.snapshot import boundaries
 from orthophoto.models import Orthophoto
 
@@ -32,7 +33,6 @@ WARNA = {'pit': '9C6B3C', 'hauling': 'D9822B', 'infra_tambang': '2F9E5B', 'infra
 TABS = (('pengajuan', 'Pengajuan area kerja'), ('sgi', 'Verifikasi BC'), ('selesai', 'Sah & berlaku'))
 # PT Berau Coal: Survey BC uploads; the same Verifikasi BC follows.
 TABS_GABUNG = (('pengajuan', 'Upload area kerja Survey BC'), ('sgi', 'Verifikasi BC'), ('selesai', 'Sah & berlaku'))
-TAHAP = {Status.DRAFT: 'pengajuan', Status.RETURN_MITRA: 'pengajuan', Status.MENUNGGU_SGI: 'sgi', Status.APPROVED: 'selesai'}
 
 
 def _scope(user):
@@ -49,6 +49,10 @@ def _week(value):
     except (TypeError, ValueError):
         return this_monday()
     return day - datetime.timedelta(days=day.weekday())
+
+
+def _report_notifications(request, pengajuan):
+    _report_sent(request, pengajuan.notifikasi_terkirim, pengajuan.status_label)
 
 
 def _url(pengajuan, tab=None):
@@ -156,7 +160,7 @@ def page(request, pk):
     scope, pengajuan = _get(request, pk)
     tabs = TABS_GABUNG if pengajuan.gabung else TABS
     keys = [key for key, _ in tabs]
-    tahap = TAHAP[pengajuan.status]
+    tahap = pengajuan.tahap
     tahap = tahap if tahap in keys else 'pengajuan'
     # Once Approved only Sah & berlaku opens: the earlier steps are done and stay closed.
     selesai = pengajuan.status == Status.APPROVED
@@ -170,7 +174,7 @@ def page(request, pk):
         slots.append({'jenis': jenis, 'area': area, 'lalu': lama, 'warna': WARNA[jenis.value]})
     can_edit = services.editable(pengajuan) and access.can_upload(scope, pengajuan.mitra_site)
     menunggu = pengajuan.status == Status.MENUNGGU_SGI
-    mine = access.departemen(scope)
+    mine = access.departemen(scope, pengajuan.mitra_site)
     done = {v.departemen: v for v in pengajuan.verifikasi.select_related('user')}
     verifikasi = [{'departemen': dept, 'hasil': done.get(dept.value), 'bisa': menunggu and dept.value in mine}
                   for dept in Departemen]
@@ -236,6 +240,7 @@ def ajukan(request, pk):
         messages.error(request, exc.message)
         return redirect(_url(pengajuan, 'pengajuan'))
     messages.success(request, f'Area kerja {pengajuan}: {pengajuan.get_status_display()}.')
+    _report_notifications(request, pengajuan)
     return redirect(_url(pengajuan))
 
 
@@ -249,7 +254,7 @@ def verifikasi(request, pk):
         messages.error(request, 'Data verifikasi tidak valid.')
         return redirect(_url(pengajuan, 'sgi'))
     data = form.cleaned_data
-    if data['departemen'] not in access.departemen(scope):
+    if data['departemen'] not in access.departemen(scope, pengajuan.mitra_site):
         raise PermissionDenied
     try:
         services.verifikasi(pengajuan, request.user, departemen=data['departemen'], aksi=data['aksi'],
@@ -264,6 +269,7 @@ def verifikasi(request, pk):
         messages.success(request, f'{label} menyetujui. Menunggu departemen lain.')
     else:
         messages.success(request, f'Area kerja {pengajuan}: {pengajuan.status_label}.')
+    _report_notifications(request, pengajuan)
     return redirect(_url(pengajuan))
 
 
@@ -288,7 +294,7 @@ def anotasi_tambah(request, pk):
     if not form.is_valid():
         return JsonResponse({'error': 'Data anotasi tidak valid.'}, status=400)
     data = form.cleaned_data
-    if data['departemen'] not in access.departemen(scope):
+    if data['departemen'] not in access.departemen(scope, pengajuan.mitra_site):
         raise PermissionDenied
     try:
         anotasi = services.tambah_anotasi(pengajuan, request.user, data['departemen'], data['teks'],

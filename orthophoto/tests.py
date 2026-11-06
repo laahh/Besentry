@@ -201,7 +201,7 @@ class ViewTests(TempDirsMixin, TestCase):
         self.addCleanup(sync.stop)
         User = get_user_model()
         self.admin = User.objects.create_user('admin', password='x')
-        self.admin.groups.add(Group.objects.get(name=roles.ADMIN_HAZARD_MOTION))
+        self.admin.groups.add(Group.objects.get(name=roles.ADMIN))
         self.other = User.objects.create_user('other', password='x')
 
     def test_publish_page_is_admin_only(self):

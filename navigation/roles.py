@@ -1,22 +1,22 @@
-"""Role names, mirrored from the Laravel BeSentry (spatie roles -> Django groups)."""
+"""Built-in roles (Django groups). A role says what someone does; where they do it is the Coverage CCTV
+of their roles and the master PIC (site and perusahaan), never the role's name."""
 
-ADMIN_HAZARD_MOTION = 'admin-hazard-motion'
-IT_PAMA = 'hazard-motion-it-pama'
-IT_MTL = 'hazard-motion-it-mtl'
-IT_BC = 'hazard-motion-it-bc'
+ADMIN = 'Admin'
+IT = 'IT'
 # Mitra (contractor) accounts only see the BeWell mitra pages.
-MITRA_ONLY = 'mitra-only'
+MITRA_ONLY = 'Mitra'
 # CCTV change requests: IT submits, Survey Mitra digitises, Survey BC reviews, Safety approves.
-# Not in the Laravel app yet.
-SURVEY_MITRA = 'survey-mitra'
-SURVEY_BC = 'survey-bc'
-SAFETY = 'safety-approval'
-# Work areas are verified together by SGI (survey-bc), Mining and Safety BC.
-MINING = 'mining-bc'
+SURVEY_MITRA = 'Survey Mitra'
+SURVEY_BC = 'Survey BC'
+SAFETY = 'Safety BC'
+# Work areas are verified together by SGI (Survey BC), Mining and Safety BC.
+MINING = 'Mining BC'
 
-IT_ROLES = (IT_PAMA, IT_MTL, IT_BC)
-ALL_ROLES = (ADMIN_HAZARD_MOTION, *IT_ROLES, MITRA_ONLY, SURVEY_MITRA, SURVEY_BC, SAFETY, MINING)
-CCTV_ADMINS = (ADMIN_HAZARD_MOTION, *IT_ROLES)
+IT_ROLES = (IT,)
+ALL_ROLES = (ADMIN, IT, MITRA_ONLY, SURVEY_MITRA, SURVEY_BC, SAFETY, MINING)
+CCTV_ADMINS = (ADMIN, IT)
+# See every CCTV without a Coverage CCTV row; see cctv.access.Scope.sees_all.
+SEES_ALL_ROLES = (SURVEY_BC, SAFETY, MINING)
 
 
 def user_group_names(user):

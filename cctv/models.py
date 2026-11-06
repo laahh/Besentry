@@ -200,7 +200,7 @@ class CctvAkses(models.Model):
 class CakupanCctv(models.Model):
     """Which CCTV a role (Django group) may see: one site/perusahaan pair per row.
 
-    An empty site or perusahaan means "all". Superusers and admin-hazard-motion see
+    An empty site or perusahaan means "all". Superusers and the Admin role see
     everything without any row (see cctv/access.py).
     """
 

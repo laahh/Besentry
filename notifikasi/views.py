@@ -12,15 +12,16 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from areakerja.models import MitraSite
 from core.karyawan_sync import karyawan_by_sid
-from core.models import Karyawan
+from core.models import Karyawan, Perusahaan
 from navigation import roles
 
 from . import services
 from .forms import PicForm
 from .models import Notifikasi, Pic
 
-MANAGERS = (roles.ADMIN_HAZARD_MOTION,)
+MANAGERS = (roles.ADMIN,)
 LOG_LIMIT = 50
 
 
@@ -44,6 +45,30 @@ def _report(request, rows, what):
                    f"{counts['menunggu']} di antrean. Lihat log di bawah untuk detailnya.")
 
 
+def _without_pic(tab, pics):
+    """The active site + company pairs no active PIC of this stage covers, per site."""
+    places = MitraSite.objects.aktif().select_related('site', 'perusahaan').order_by('site__kode', 'perusahaan__nama')
+    if tab == Pic.Tahap.MITRA:  # PT Berau Coal has no Survey Mitra stage
+        places = places.exclude(perusahaan__kode=Perusahaan.KODE_BERAU_COAL)
+    places = list(places)
+    active = [pic for pic in pics if pic.tahap == tab and pic.aktif]
+    per_site, missing = {}, 0
+    for place in places:
+        if not any(pic.covers(place) for pic in active):
+            per_site.setdefault(place.site.kode, []).append(place.perusahaan.nama)
+            missing += 1
+    return {
+        'jumlah': missing,
+        'total': len(places),
+        'site': [{'site': site, 'perusahaan': names} for site, names in per_site.items()],
+    }
+
+
+def _by_place(pic):
+    # 'Semua site' and 'Semua perusahaan' first, then by name.
+    return (pic.site.kode if pic.site else '', pic.perusahaan.nama if pic.perusahaan else '', pic.nama)
+
+
 @login_required
 def pic_list(request):
     _check_manager(request.user)
@@ -62,7 +87,8 @@ def pic_list(request):
         'tab': tab,
         'tabs': [(value, label, sum(pic.tahap == value for pic in pics)) for value, label in Pic.Tahap.choices],
         'tab_label': Pic.Tahap(tab).label,
-        'pics': [pic for pic in pics if pic.tahap == tab],
+        'pics': sorted((pic for pic in pics if pic.tahap == tab), key=_by_place),
+        'tanpa_pic': _without_pic(tab, pics),
         'log': Notifikasi.objects.select_related('pic', 'cctv')[:LOG_LIMIT],
     })
 

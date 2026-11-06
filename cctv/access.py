@@ -1,6 +1,6 @@
 """Row-level access to CCTV by site and perusahaan.
 
-Superusers and admin-hazard-motion see and manage every CCTV. Everyone else sees
+Superusers and the Admin role see and manage every CCTV. Everyone else sees
 the CCTV matched by the CakupanCctv rows of their groups, e.g. group
 "CCTV BMO 2 - PT Pamapersada Nusantara" -> site BMO 2 + PT Pamapersada only.
 
@@ -23,7 +23,7 @@ from .models import CakupanCctv, Cctv
 
 ROLE_NAME_MAX = 150
 
-FULL_ACCESS_ROLES = (roles.ADMIN_HAZARD_MOTION,)
+FULL_ACCESS_ROLES = (roles.ADMIN,)
 # Connection details and passwords, on top of the site/perusahaan scope. IT also deletes CCTV.
 AKSES_ROLES = roles.IT_ROLES
 
@@ -57,6 +57,9 @@ class Scope:
     is_sgi: bool = False
     is_safety: bool = False
     is_mining: bool = False  # verifies work areas with SGI and Safety BC
+    # Stages held through a role work everywhere; through the master PIC, only in that PIC's place.
+    role_stages: frozenset = frozenset()
+    pic_places: tuple = ()  # (stage, site id or None, perusahaan id or None)
 
     @property
     def sees_all(self):
@@ -66,16 +69,20 @@ class Scope:
     def can_open(self):
         return self.sees_all or bool(self.rules)
 
-    def can_digitize(self, cctv):
-        return self.full or (self.is_mitra and self.allows(cctv.site_id, cctv.perusahaan_id))
+    def _pic_of(self, stage, place):
+        return any(
+            pic_stage == stage and site in (None, place.site_id) and perusahaan in (None, place.perusahaan_id)
+            for pic_stage, site, perusahaan in self.pic_places
+        )
 
-    @property
-    def can_review_sgi(self):
-        return self.full or self.is_sgi
+    def can_work(self, stage, place):
+        """May act on this stage for a CCTV or Mitra Site: anyone may look, not everyone may decide."""
+        return self.full or stage in self.role_stages or self._pic_of(stage, place)
 
-    @property
-    def can_review_safety(self):
-        return self.full or self.is_safety
+    def can_digitize(self, place):
+        # Survey Mitra's role stays within the Coverage CCTV of the user's roles.
+        in_role = 'mitra' in self.role_stages and self.allows(place.site_id, place.perusahaan_id)
+        return self.full or in_role or self._pic_of('mitra', place)
 
     @property
     def can_create(self):
@@ -131,12 +138,17 @@ def get_scope(user):
         assigned = list(Pic.objects.filter(aktif=True, karyawan__user=user)
                         .values_list('tahap', 'site_id', 'perusahaan_id'))
         tahap = {row[0] for row in assigned}
+        held = {
+            'mitra': roles.SURVEY_MITRA, 'sgi': roles.SURVEY_BC, 'safety': roles.SAFETY, 'mining': roles.MINING,
+        }
         flags = {
+            'role_stages': frozenset(stage for stage, role in held.items() if role in group_names),
+            'pic_places': tuple(assigned),
             'can_see_akses': roles.has_any_role(user, group_names, AKSES_ROLES),
             'is_mitra': roles.SURVEY_MITRA in group_names or Pic.Tahap.MITRA in tahap,
             'is_sgi': roles.SURVEY_BC in group_names or Pic.Tahap.SGI in tahap,
             'is_safety': roles.SAFETY in group_names or Pic.Tahap.SAFETY in tahap,
-            'is_mining': roles.MINING in group_names,
+            'is_mining': roles.MINING in group_names or Pic.Tahap.MINING in tahap,
         }
         if roles.has_any_role(user, group_names, FULL_ACCESS_ROLES):
             scope = Scope(full=True, **flags)

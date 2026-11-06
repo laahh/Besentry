@@ -1,6 +1,8 @@
-{# CCTV scope of one role. Params: group, full_access_roles #}
+{# CCTV scope of one role. Params: group, full_access_roles, sees_all_roles #}
 {% if group.name in full_access_roles %}
 <span class="badge badge-primary">Semua CCTV (akses penuh)</span>
+{% elif group.name in sees_all_roles %}
+<span class="badge badge-light text-dark">Lihat semua CCTV</span>
 {% else %}
 {% for c in group.cakupan_cctv.all %}
 <span class="badge badge-light text-dark me-1 mb-1">{{ c.site|default:"Semua site" }} · {{ c.perusahaan|default:"Semua perusahaan" }}{% if c.bisa_ubah %} <span class="text-success">· ubah</span>{% endif %}</span>
