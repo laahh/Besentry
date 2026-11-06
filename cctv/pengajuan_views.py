@@ -91,11 +91,11 @@ def _can_draw(scope, pengajuan):
 
 
 def _can_sgi(scope, pengajuan):
-    return pengajuan.status in (Status.MENUNGGU_SGI, Status.RETURN_SGI) and scope.can_review_sgi
+    return pengajuan.status in (Status.MENUNGGU_SGI, Status.RETURN_SGI) and scope.can_work('sgi', pengajuan.cctv)
 
 
 def _can_safety(scope, pengajuan):
-    return pengajuan.status == Status.MENUNGGU_SAFETY and scope.can_review_safety
+    return pengajuan.status == Status.MENUNGGU_SAFETY and scope.can_work('safety', pengajuan.cctv)
 
 
 def _feature(geom):
@@ -182,7 +182,7 @@ def _render(request, scope, pengajuan, tab=None, forms=None):
     reached = keys.index(pengajuan.tahap) if pengajuan else 0
     pics = {}
     if pengajuan and pengajuan.cctv_id:
-        for pic in notifikasi.pics_for(pengajuan.cctv).only('tahap', 'nama'):
+        for pic in notifikasi.pics_for(pengajuan.cctv):
             pics.setdefault(pic.tahap, []).append(pic.nama)
     context = {
         'p': pengajuan,
@@ -306,6 +306,17 @@ def _save_it(request, scope, pengajuan):
         messages.error(request, 'Periksa isian data CCTV.')
         return _render(request, scope, pengajuan, 'it', forms)
 
+    saved, pengajuan = _save_new_cctv(forms, pengajuan, it_form, request.user, before)
+    if pengajuan.status == Status.APPROVED:
+        messages.success(request, f'{saved.no_cctv} disimpan. Tidak ada perubahan geometri, jadi langsung Approved.')
+        return redirect('cctv:detail', pk=saved.pk)
+    messages.success(request, f'{saved.no_cctv} diteruskan ke Survey Mitra untuk digitasi.')
+    _notify(request, pengajuan)
+    return redirect(_url(pengajuan))
+
+
+def _save_new_cctv(forms, pengajuan, it_form, user, before):
+    """Stores the CCTV, spec and akses forms and continues the request to digitisation."""
     with transaction.atomic(), transaction.atomic(using='log'):
         saved = forms['form'].save()
         # Spec/akses rows are only created once something is filled in.
@@ -314,16 +325,11 @@ def _save_it(request, scope, pengajuan):
                 related_form.instance.cctv = saved
                 related_form.save()
         if pengajuan is None:
-            pengajuan = PengajuanCoverage(jenis=PengajuanCoverage.Jenis.BARU, diajukan_oleh=request.user)
+            pengajuan = PengajuanCoverage(jenis=PengajuanCoverage.Jenis.BARU, diajukan_oleh=user)
         _attach(pengajuan, it_form)
         saved = Cctv.objects.select_related('spec').get(pk=saved.pk)
-        coverage.continue_request(pengajuan, request.user, saved, before)
-    if pengajuan.status == Status.APPROVED:
-        messages.success(request, f'{saved.no_cctv} disimpan. Tidak ada perubahan geometri, jadi langsung Approved.')
-        return redirect('cctv:detail', pk=saved.pk)
-    messages.success(request, f'{saved.no_cctv} diteruskan ke Survey Mitra untuk digitasi.')
-    _notify(request, pengajuan)
-    return redirect(_url(pengajuan))
+        coverage.continue_request(pengajuan, user, saved, before)
+    return saved, pengajuan
 
 
 def _attach(pengajuan, it_form):

@@ -11,6 +11,7 @@ class AreaKerjaConfig(AppConfig):
 
     def ready(self):
         from cctv.models import Cctv, CctvCoverage, PengajuanCoverage
+        from notifikasi.area_kerja import notify
 
         from . import kalkulasi
         from .models import AreaKerja, MitraSite, PengajuanAreaKerja, RiwayatAreaKerja
@@ -33,3 +34,4 @@ class AreaKerjaConfig(AppConfig):
                 transaction.on_commit(lambda: kalkulasi.selesaikan_menunggu(mitra_site=mitra_site))
 
         area_kerja_berubah.connect(approved, dispatch_uid='coverage-selesaikan-menunggu')
+        area_kerja_berubah.connect(notify, dispatch_uid='notifikasi-area-kerja')

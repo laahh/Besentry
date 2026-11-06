@@ -44,31 +44,30 @@ class MenuSection:
 
 MAIN_MENU = (
     MenuSection('Umum', (
-        MenuItem('Dashboard', 'home', url_name='dashboard:index', groups=(roles.ADMIN_HAZARD_MOTION,)),
-        MenuItem('Tasklist', 'check-square', url_name='cctv:tasklist', check='cctv.access.can_open'),
+        # Dashboard Coverage. Its own address, so the sidebar marks it as the current page.
+        MenuItem('Dashboard', 'home', url_name='coverage:index', check='dashboard.coverage.can_open'),
     )),
     MenuSection('Kesiapan Alat', (
-        MenuItem('CCTV Management', 'camera', children=(
-            # Visible to admins and to any role with a CCTV site/perusahaan scope.
-            MenuItem('CCTV Database', url_name='cctv:index', check='cctv.access.can_open'),
-            MenuItem('Area Kerja', url_name='areakerja:index', check='areakerja.access.can_open'),
-            MenuItem('Dashboard Coverage', url_name='coverage:index', check='dashboard.coverage.can_open'),
-            MenuItem('CCTV PJA Dedicated', page='cctv-pja-dedicated'),
-            MenuItem('Pengawas Control Room', page='cctv-control-room'),
-        )),
+        # Visible to admins and to any role with a CCTV site/perusahaan scope.
+        MenuItem('CCTV Management', 'camera', url_name='cctv:index', check='cctv.access.can_open'),
+        # Placeholder pages, not ready yet.
+        MenuItem('CCTV PJA Dedicated', page='cctv-pja-dedicated', hidden=True),
+        MenuItem('Pengawas Control Room', page='cctv-control-room', hidden=True),
+        MenuItem('Area Kerja', 'map', url_name='areakerja:index', check='areakerja.access.can_open'),
         # Change requests (IT -> Survey Mitra -> Survey BC -> Safety) are opened from the CCTV
         # Database: its status column links to each request.
-        MenuItem('Spasial', 'crosshair', groups=(roles.ADMIN_HAZARD_MOTION,), children=(
+        MenuItem('Spasial', 'crosshair', groups=(roles.ADMIN,), children=(
             MenuItem('WMS', page='spasial-wms', hidden=True),
             MenuItem('Area Kerja + Area CCTV', page='spasial-area-kerja', hidden=True),
             MenuItem('Boundary Monitoring', page='spasial-boundary-monitoring', hidden=True),
             MenuItem('Orthophoto', url_name='orthophoto:publish'),
         )),
+        MenuItem('Tasklist', 'check-square', url_name='cctv:tasklist', check='cctv.access.can_open'),
     )),
     MenuSection('Pengaturan', (
-        MenuItem('Role & Akses', 'user-check', url_name='pengaturan:role_list', groups=(roles.ADMIN_HAZARD_MOTION,)),
-        MenuItem('Pengguna', 'users', url_name='pengaturan:user_list', groups=(roles.ADMIN_HAZARD_MOTION,)),
-        MenuItem('Master PIC', 'bell', url_name='notifikasi:pic_list', groups=(roles.ADMIN_HAZARD_MOTION,)),
+        MenuItem('Role & Akses', 'user-check', url_name='pengaturan:role_list', groups=(roles.ADMIN,)),
+        MenuItem('Pengguna', 'users', url_name='pengaturan:user_list', groups=(roles.ADMIN,)),
+        MenuItem('Master PIC', 'bell', url_name='notifikasi:pic_list', groups=(roles.ADMIN,)),
     )),
     MenuSection('Sistem', (
         MenuItem('Zona', 'layers', url_name='admin:core_zona_changelist'),

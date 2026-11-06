@@ -11,6 +11,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.gis.geos import MultiPolygon
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.shortcuts import redirect, render
 
 from notifikasi import services as notifikasi
@@ -68,16 +69,19 @@ def _check(upload, tasks):
 def _send(rows, user, nama_file):
     orthophoto = Orthophoto.objects.filter(aktif=True).first()
     sent, failed = [], 0
-    for row in rows:
-        if not row['valid']:
-            failed += 1
-            continue
-        try:
-            coverage.save_digitasi(row['pengajuan'], user, row['geom'], kirim=True, sumber='shp',
-                                   file_shp=nama_file, catatan='upload SHP sekaligus', orthophoto=orthophoto)
-            sent.append(row['pengajuan'])
-        except (coverage.GeometryError, coverage.ReviewError):  # moved on since it was read
-            failed += 1
+    # One transaction: live coverage is recomputed once, not once per CCTV. Each row is its own
+    # savepoint (save_digitasi is atomic), so one that fails stays alone.
+    with transaction.atomic():
+        for row in rows:
+            if not row['valid']:
+                failed += 1
+                continue
+            try:
+                coverage.save_digitasi(row['pengajuan'], user, row['geom'], kirim=True, sumber='shp',
+                                       file_shp=nama_file, catatan='upload SHP sekaligus', orthophoto=orthophoto)
+                sent.append(row['pengajuan'])
+            except (coverage.GeometryError, coverage.ReviewError):  # moved on since it was read
+                failed += 1
     return sent, failed
 
 

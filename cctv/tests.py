@@ -244,9 +244,9 @@ class ViewTests(MediaMixin, TestCase):
     def setUpTestData(cls):
         User = get_user_model()
         cls.admin = User.objects.create_user('admin', password='x')
-        cls.admin.groups.add(Group.objects.get(name=roles.ADMIN_HAZARD_MOTION))
+        cls.admin.groups.add(Group.objects.get(name=roles.ADMIN))
         cls.it = User.objects.create_user('it', password='x')
-        cls.it.groups.add(Group.objects.get(name=roles.IT_PAMA))
+        cls.it.groups.add(Group.objects.get(name=roles.IT))
         cls.site = Site.objects.create(kode='LMO')
         cls.other_site = Site.objects.create(kode='SMO')
         cls.perusahaan = Perusahaan.objects.create(nama='PT Berau Coal', kode='BC')
@@ -432,7 +432,7 @@ class AccessScopeTests(MediaMixin, TestCase):
         cls.user = User.objects.create_user('pama', password='x')
         cls.user.groups.add(cls.role)
         cls.admin = User.objects.create_user('admin', password='x')
-        cls.admin.groups.add(Group.objects.get(name=roles.ADMIN_HAZARD_MOTION))
+        cls.admin.groups.add(Group.objects.get(name=roles.ADMIN))
 
     def setUp(self):
         super().setUp()
@@ -516,8 +516,8 @@ class AccessScopeTests(MediaMixin, TestCase):
 
     def test_password_endpoint_respects_scope(self):
         it_bmo2 = get_user_model().objects.create_user('it-bmo2', password='x')
-        it_bmo2.groups.add(self.role, Group.objects.get(name=roles.IT_PAMA))
-        CakupanCctv.objects.filter(group__name=roles.IT_PAMA).delete()  # narrow IT to this role's scope
+        it_bmo2.groups.add(self.role, Group.objects.get(name=roles.IT))
+        CakupanCctv.objects.filter(group__name=roles.IT).delete()  # narrow IT to this role's scope
         CctvAkses.objects.create(cctv=self.other_company, password='rahasia')
         self.client.force_login(it_bmo2)
         self.assertEqual(self.client.post(reverse('cctv:password', args=[self.other_company.pk])).status_code, 404)
@@ -526,14 +526,14 @@ class AccessScopeTests(MediaMixin, TestCase):
         def titles(user):
             return [c['title'] for s in build_menu(user) for i in s['items'] for c in i['children']]
 
-        self.assertIn('CCTV Database', titles(get_user_model().objects.get(pk=self.user.pk)))
+        self.assertIn('CCTV Management', titles(get_user_model().objects.get(pk=self.user.pk)))
         nobody = get_user_model().objects.create_user('nobody', password='x')
-        self.assertNotIn('CCTV Database', titles(nobody))
+        self.assertNotIn('CCTV Management', titles(nobody))
         self.client.force_login(nobody)
         self.assertEqual(self.client.get(reverse('cctv:index')).status_code, 403)
 
     def test_it_roles_keep_full_scope_after_migration(self):
-        rule = CakupanCctv.objects.get(group__name=roles.IT_PAMA)
+        rule = CakupanCctv.objects.get(group__name=roles.IT)
         self.assertEqual((rule.site, rule.perusahaan, rule.bisa_ubah), (None, None, True))
 
     def test_buat_role_cctv_creates_one_role_per_pair(self):

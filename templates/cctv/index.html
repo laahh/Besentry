@@ -9,7 +9,8 @@
 {% endblock %}
 {% block page_actions %}
 <a class="btn btn-outline-primary btn-sm" href="{% url 'cctv:export' %}?{{ request.GET.urlencode }}"><i data-feather="download" class="me-1"></i>Export CSV</a>
-{% if scope.can_create %}<a class="btn btn-primary btn-sm" href="{% url 'cctv:pengajuan_baru' %}"><i data-feather="plus" class="me-1"></i>Tambah CCTV</a>{% endif %}
+{% if scope.can_create %}<a class="btn btn-outline-primary btn-sm" href="{% url 'cctv:upload_excel' %}"><i data-feather="upload" class="me-1"></i>Upload Excel</a>
+<a class="btn btn-primary btn-sm" href="{% url 'cctv:pengajuan_baru' %}"><i data-feather="plus" class="me-1"></i>Tambah CCTV</a>{% endif %}
 {% endblock %}
 {% block css %}{% include "layout/maplibre.html" %}{% endblock %}
 

@@ -85,30 +85,30 @@ class MenuVisibilityTests(TestCase):
 
     def test_regular_user_hides_admin_only_entries(self):
         titles = _all_titles(build_menu(self._user()))
-        self.assertIn('Pengawas Control Room', titles)
-        for hidden in ('CCTV Database', 'Spasial', 'WMS', 'Zona', 'Admin'):
+        for hidden in ('Dashboard', 'CCTV Management', 'Spasial', 'WMS', 'Zona', 'Admin'):
             self.assertNotIn(hidden, titles)
         self.assertNotIn('Umum', _titles(build_menu(self._user())))
 
     def test_it_pama_sees_cctv_admin_pages_but_not_spasial(self):
-        titles = _all_titles(build_menu(self._user(roles.IT_PAMA)))
-        self.assertIn('CCTV Database', titles)
+        titles = _all_titles(build_menu(self._user(roles.IT)))
+        self.assertIn('CCTV Management', titles)
         self.assertNotIn('Spasial', titles)
 
     def test_admin_hazard_motion_sees_dashboard_and_spasial(self):
-        titles = _all_titles(build_menu(self._user(roles.ADMIN_HAZARD_MOTION)))
-        for visible in ('Dashboard', 'Spasial', 'Orthophoto', 'CCTV Database'):
+        titles = _all_titles(build_menu(self._user(roles.ADMIN)))
+        for visible in ('Dashboard', 'Spasial', 'Orthophoto', 'CCTV Management'):
             self.assertIn(visible, titles)
 
     def test_survey_bc_and_safety_reach_requests_through_the_cctv_database(self):
         for role in (roles.SURVEY_BC, roles.SAFETY):
             titles = _all_titles(build_menu(self._user(role)))
-            self.assertIn('CCTV Database', titles)
+            self.assertIn('CCTV Management', titles)
             self.assertNotIn('Spasial', titles)
 
     def test_hidden_items_are_not_shown_even_to_superusers(self):
         titles = _all_titles(build_menu(self.User.objects.create_superuser('root', password='x')))
-        for hidden in ('WMS', 'Area Kerja + Area CCTV', 'Boundary Monitoring'):
+        for hidden in ('WMS', 'Area Kerja + Area CCTV', 'Boundary Monitoring', 'CCTV PJA Dedicated',
+                       'Pengawas Control Room'):
             self.assertNotIn(hidden, titles)
         self.assertIn('Orthophoto', titles)
 
@@ -132,10 +132,44 @@ class PlaceholderPageTests(TestCase):
         self.assertContains(response, 'Pengawas Control Room')
         self.assertContains(response, "route('cctv-data.control-room.index')")
 
+    def test_cctv_management_goes_straight_to_the_database(self):
+        superuser = get_user_model().objects.create_superuser('root-cctv', password='x')
+        section = next(s for s in build_menu(superuser) if s['title'] == 'Kesiapan Alat')
+        item = next(i for i in section['items'] if i['title'] == 'CCTV Management')
+        self.assertEqual((item['url'], item['children']), ('/cctv/database/', []))
+
+    def test_dashboard_is_dashboard_coverage_for_whoever_may_see_it(self):
+        for role in (roles.ADMIN, roles.SURVEY_BC, roles.MINING, roles.SAFETY):
+            with self.subTest(role):
+                user = get_user_model().objects.create_user(f'dash-{role}', password='x')
+                user.groups.add(Group.objects.get(name=role))
+                section = next(s for s in build_menu(user) if s['title'] == 'Umum')
+                self.assertEqual(section['items'][0]['url'], '/cctv/dashboard-coverage/')
+        contractor = get_user_model().objects.create_user('dash-mitra', password='x')
+        contractor.groups.add(Group.objects.get(name=roles.SURVEY_MITRA))
+        self.assertNotIn('Dashboard', _all_titles(build_menu(contractor)))
+
+    def test_tasklist_closes_the_kesiapan_alat_section(self):
+        superuser = get_user_model().objects.create_superuser('root-tugas', password='x')
+        sections = {section['title']: [item['title'] for item in section['items']] for section in build_menu(superuser)}
+        self.assertEqual(sections['Kesiapan Alat'][-1], 'Tasklist')
+        self.assertEqual(sections['Umum'], ['Dashboard'])
+
+    def test_area_kerja_is_a_main_menu_below_cctv_management(self):
+        superuser = get_user_model().objects.create_superuser('root-area', password='x')
+        section = next(s for s in build_menu(superuser) if s['title'] == 'Kesiapan Alat')
+        titles = [item['title'] for item in section['items']]
+        self.assertEqual(titles.index('Area Kerja'), titles.index('CCTV Management') + 1)
+        area = section['items'][titles.index('Area Kerja')]
+        self.assertEqual((area['icon'], area['url'], area['children']), ('map', '/area-kerja/', []))
+        children = [child['title'] for item in section['items'] for child in item['children']]
+        self.assertNotIn('Area Kerja', children)
+
     def test_sidebar_is_rendered_from_menu(self):
         response = self.client.get(reverse('navigation:page', kwargs={'name': 'cctv-control-room'}))
         self.assertContains(response, '<h6>Kesiapan Alat</h6>', html=True)
-        self.assertContains(response, 'href="/cctv/pengawas-control-room/"')
+        self.assertContains(response, 'href="/cctv/database/"')
+        self.assertNotContains(response, 'href="/cctv/pengawas-control-room/"')
 
     def test_removed_menus_are_gone(self):
         superuser = get_user_model().objects.create_superuser('root', password='x')

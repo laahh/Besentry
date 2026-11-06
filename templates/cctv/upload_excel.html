@@ -1,0 +1,106 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Upload CCTV dari Excel{% endblock %}
+{% block page_title %}Upload CCTV dari Excel{% endblock %}
+{% block breadcrumb %}
+<li class="breadcrumb-item">CCTV Management</li>
+<li class="breadcrumb-item"><a href="{% url 'cctv:index' %}">CCTV Database</a></li>
+<li class="breadcrumb-item active">Upload Excel</li>
+{% endblock %}
+{% block page_actions %}
+<a class="btn btn-outline-primary btn-sm" href="{% url 'cctv:template_excel' %}"><i data-feather="download"></i>Download template</a>
+{% endblock %}
+
+{% block content %}
+{% include "partials/messages.html" %}
+
+<div class="row">
+  <div class="col-xl-8">
+    <form method="post" enctype="multipart/form-data" class="card" id="form-excel" novalidate>
+      {% csrf_token %}
+      <div class="card-header pb-0">
+        <h5>Tambah banyak CCTV</h5>
+        <p class="f-12 text-muted mb-0 mt-1">Cek file dulu untuk melihat hasilnya per baris. Belum ada data yang tersimpan sampai kamu menekan Proses.</p>
+      </div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label" for="{{ form.file_excel.id_for_label }}">{{ form.file_excel.label }}</label>
+          {{ form.file_excel }}
+        </div>
+        <div class="mb-1">
+          <label class="form-label" for="{{ form.file_gambar.id_for_label }}">{{ form.file_gambar.label }} <span class="text-muted">(opsional)</span></label>
+          {{ form.file_gambar }}
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          <button class="btn btn-outline-primary" type="button" id="excel-cek">Cek file</button>
+          <button class="btn btn-primary" type="submit" name="aksi" value="proses" id="excel-proses" disabled>Proses</button>
+        </div>
+        <div id="excel-hasil" class="mt-3" aria-live="polite"></div>
+      </div>
+    </form>
+  </div>
+
+  <div class="col-xl-4">
+    <div class="card">
+      <div class="card-header pb-0"><h5>Cara pakai</h5></div>
+      <div class="card-body f-12">
+        <ol class="mb-0 ps-3" style="list-style: decimal;">
+          <li class="mb-2"><a href="{% url 'cctv:template_excel' %}">Download template</a>, isi satu baris per CCTV (maksimal {{ max_baris }} baris).</li>
+          <li class="mb-2">Agar langsung lanjut ke digitasi, siapkan ZIP tangkapan layar dengan nama file sama seperti No. CCTV, mis. <code>LMO-FAD-0100.png</code>.</li>
+          <li class="mb-2">Baris tanpa tangkapan layar menjadi <strong>Draft IT</strong>, dan bisa dilengkapi lewat Tasklist.</li>
+          <li>Setiap baris diperiksa dengan aturan yang sama seperti form Tambah CCTV. Password CCTV diisi per CCTV lewat halaman pengajuan.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scriptcontent %}
+<script>
+  (() => {
+    const form = document.getElementById('form-excel');
+    const file = form.file_excel;
+    const check = document.getElementById('excel-cek');
+    const send = document.getElementById('excel-proses');
+    const result = document.getElementById('excel-hasil');
+
+    const reset = () => {
+      result.replaceChildren();
+      send.disabled = true;
+      send.textContent = 'Proses';
+    };
+    file.addEventListener('change', reset);
+    form.file_gambar.addEventListener('change', reset);
+
+    check.addEventListener('click', async () => {
+      if (!file.files.length) {
+        file.classList.add('is-invalid');
+        return;
+      }
+      file.classList.remove('is-invalid');
+      check.disabled = true;
+      send.disabled = true;
+      result.textContent = 'Memeriksa file...';
+      const body = new FormData(form);
+      body.append('aksi', 'cek');
+      try {
+        const response = await fetch(form.action, { method: 'POST', body });
+        result.innerHTML = await response.text();  // rendered and escaped by the server
+        const passed = Number(result.querySelector('[data-lolos]')?.dataset.lolos || 0);
+        send.disabled = passed === 0;
+        send.textContent = passed ? `Proses ${passed} CCTV` : 'Proses';
+      } catch (error) {
+        result.textContent = 'Gagal menghubungi server. Coba lagi.';
+      } finally {
+        check.disabled = false;
+      }
+    });
+
+    // The files travel once more and are checked again; a second click would find every number taken.
+    form.addEventListener('submit', () => {
+      setTimeout(() => { send.disabled = true; });
+    });
+  })();
+</script>
+{% endblock %}

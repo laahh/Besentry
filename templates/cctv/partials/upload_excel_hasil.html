@@ -1,0 +1,25 @@
+{% if error %}
+<div class="alert alert-danger py-2 mb-0 f-12">{{ error }}</div>
+{% else %}
+<div data-lolos="{{ jumlah_lolos }}" class="mb-2">
+  <span class="f-w-600">{{ jumlah_lolos }} lolos</span>{% if jumlah_lolos %} <span class="f-12 text-muted">({{ jumlah_digitasi }} lanjut digitasi, {{ jumlah_draft }} Draft IT)</span>{% endif %}{% if jumlah_gagal %} · <span class="text-danger f-w-600">{{ jumlah_gagal }} tidak lolos</span>{% endif %}
+</div>
+<div class="table-responsive massal-hasil">
+  <table class="table table-sm align-middle cctv-table mb-0">
+    <thead><tr><th>Baris</th><th>No. CCTV</th><th>Hasil</th><th>Keterangan</th></tr></thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.baris }}</td>
+        <td class="text-nowrap f-w-600">{{ row.no_cctv }}</td>
+        <td class="text-nowrap">{% if row.valid %}<span class="badge badge-{% if row.tujuan == 'Draft IT' %}light text-dark{% else %}success{% endif %}">{{ row.tujuan }}</span>{% else %}<span class="badge badge-danger">Tidak lolos</span>{% endif %}</td>
+        <td class="f-12">{% if row.valid %}{{ row.nama }}{% else %}{{ row.pesan }}{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if gambar_lebih %}
+<p class="f-12 text-muted mt-2 mb-0">Tangkapan layar tanpa baris ({{ gambar_lebih|length }}): {{ gambar_lebih|join:", " }}</p>
+{% endif %}
+{% endif %}

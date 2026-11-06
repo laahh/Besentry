@@ -17,7 +17,7 @@ from navigation import roles
 
 from .forms import CakupanFormSet, RoleForm, UserRolesForm
 
-MANAGERS = (roles.ADMIN_HAZARD_MOTION,)
+MANAGERS = (roles.ADMIN,)
 PER_PAGE = 50
 MEMBERS_SHOWN = 100
 SEARCH_MAX = 100
@@ -51,6 +51,7 @@ def role_list(request):
         'q': q,
         'system_roles': roles.ALL_ROLES,
         'full_access_roles': MANAGERS,
+        'sees_all_roles': roles.SEES_ALL_ROLES,
     })
 
 

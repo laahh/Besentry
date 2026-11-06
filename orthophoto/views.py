@@ -11,7 +11,7 @@ from . import jobs, services
 from .forms import PublishForm
 from .models import Orthophoto
 
-PUBLISHERS = (roles.ADMIN_HAZARD_MOTION,)
+PUBLISHERS = (roles.ADMIN,)
 RIWAYAT_LIMIT = 12
 STATUS_BADGE = {
     Orthophoto.Status.MENUNGGU: 'warning',

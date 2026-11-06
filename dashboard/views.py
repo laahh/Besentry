@@ -2,9 +2,11 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib.gis.db.models.functions import Area, Transform
 from django.db.models import Sum
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 
 from core.models import Zona
+
+from . import coverage
 
 # UTM zone 50N covers Berau, so areas come out in real square metres.
 UTM_50N_SRID = 32650
@@ -22,6 +24,9 @@ def _to_hectare(area):
 
 @login_required
 def index(request):
+    """The landing page: Dashboard Coverage, or this summary for those who may not see it (contractors)."""
+    if coverage.can_open(request.user):
+        return redirect('coverage:index')
     total_luas = _zona_with_area().aggregate(total=Sum('luas'))['total']
     zona_terbaru = [
         {'pk': z.pk, 'nama': z.nama, 'luas_ha': _to_hectare(z.luas), 'dibuat': z.dibuat}

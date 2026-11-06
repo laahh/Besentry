@@ -12,6 +12,7 @@ from django.contrib.auth.models import Group
 from django.contrib.gis.geos import Point
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import TestCase, override_settings
 
 from core.models import Karyawan, Perusahaan, Site
@@ -19,6 +20,7 @@ from navigation import roles
 from notifikasi import channels, services
 from notifikasi.models import Notifikasi, Pic
 
+from . import coverage
 from .models import CakupanCctv, Cctv, PengajuanCoverage
 from .tests_pengajuan import CAMERA, square
 
@@ -127,11 +129,28 @@ class DigitasiMassalTests(TestCase):
                                    posisi=Point(*CAMERA, srid=4326))
         PengajuanCoverage.objects.create(cctv=cctv, jenis='dipindah', status='menunggu_sgi')
         admin = get_user_model().objects.create_user('admin', password='x')
-        admin.groups.add(Group.objects.get_or_create(name=roles.ADMIN_HAZARD_MOTION)[0])
+        admin.groups.add(Group.objects.get_or_create(name=roles.ADMIN)[0])
         self.client.force_login(admin)
         response = self.post(shp_zip(self.good('BC-1')), 'cek')
         self.assertEqual(response.context['jumlah_lolos'], 0)
         self.assertEqual(response.context['rows'][0]['pesan'], 'Tidak ada tugas digitasi untuk CCTV ini.')
+
+    def test_all_rows_share_one_transaction_so_live_coverage_is_recomputed_once(self):
+        # Live coverage runs once per transaction, and TestCase is itself one, so counting runs here
+        # proves nothing. Each save must sit in an outer atomic block of the view.
+        real, depths = coverage.save_digitasi, []
+
+        def spy(*args, **kwargs):
+            depths.append(len(connection.savepoint_ids))
+            return real(*args, **kwargs)
+
+        upload = shp_zip(self.good('LMO-1', 'LMO-2'))
+        baseline = len(connection.savepoint_ids)
+        with mock.patch.object(coverage, 'save_digitasi', side_effect=spy):
+            self.post(upload, 'kirim')
+        self.satu.refresh_from_db()
+        self.assertEqual(self.satu.status, 'menunggu_sgi')
+        self.assertEqual(depths, [baseline + 1, baseline + 1])
 
     def test_sending_twice_does_not_repeat(self):
         self.post(shp_zip(self.good('LMO-1')), 'kirim')

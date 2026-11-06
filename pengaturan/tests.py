@@ -24,7 +24,7 @@ class RolePageTests(TestCase):
     def setUpTestData(cls):
         User = get_user_model()
         cls.admin = User.objects.create_user('admin', password='x')
-        cls.admin.groups.add(Group.objects.get(name=roles.ADMIN_HAZARD_MOTION))
+        cls.admin.groups.add(Group.objects.get(name=roles.ADMIN))
         cls.user = User.objects.create_user('budi', password='x', first_name='Budi')
         cls.bmo2 = Site.objects.create(kode='BMO 2')
         cls.pama = Perusahaan.objects.create(nama='PT Pamapersada Nusantara', kode='PM')
@@ -69,18 +69,18 @@ class RolePageTests(TestCase):
         self.assertFalse(CakupanCctv.objects.filter(group=group).exists())
 
     def test_system_roles_cannot_be_renamed_or_deleted(self):
-        group = Group.objects.get(name=roles.IT_PAMA)
+        group = Group.objects.get(name=roles.IT)
         rule = group.cakupan_cctv.get()  # full scope from the migration
         data = {'name': 'diganti', **formset_data([{'id': rule.pk, 'site': '', 'perusahaan': ''}], initial=1)}
         self.client.post(reverse('pengaturan:role_update', args=[group.pk]), data)
         group.refresh_from_db()
-        self.assertEqual(group.name, roles.IT_PAMA)
+        self.assertEqual(group.name, roles.IT)
 
         self.client.post(reverse('pengaturan:role_delete', args=[group.pk]))
-        self.assertTrue(Group.objects.filter(name=roles.IT_PAMA).exists())
+        self.assertTrue(Group.objects.filter(name=roles.IT).exists())
 
     def test_admin_role_page_has_no_scope_rows(self):
-        group = Group.objects.get(name=roles.ADMIN_HAZARD_MOTION)
+        group = Group.objects.get(name=roles.ADMIN)
         response = self.client.get(reverse('pengaturan:role_update', args=[group.pk]))
         self.assertContains(response, 'semua CCTV')
         self.assertIsNone(response.context['formset'])
@@ -111,7 +111,7 @@ class UserRolesPageTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         User = get_user_model()
-        cls.admin_group = Group.objects.get(name=roles.ADMIN_HAZARD_MOTION)
+        cls.admin_group = Group.objects.get(name=roles.ADMIN)
         cls.admin = User.objects.create_user('admin', password='x')
         cls.admin.groups.add(cls.admin_group)
         cls.user = User.objects.create_user('budi', password='x')

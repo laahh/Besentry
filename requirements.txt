@@ -40,3 +40,4 @@ typing_extensions==4.16.0
 tzdata==2026.6
 ujson==6.0.0
 zope.interface==8.7
+defusedxml==0.7.1

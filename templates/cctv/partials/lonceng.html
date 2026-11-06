@@ -1,0 +1,20 @@
+<li data-total="{{ total }}">
+  <p class="f-w-700 mb-0">Tugas saya{% if total %} <span class="f-12 text-muted">({{ total }})</span>{% endif %}</p>
+</li>
+{% for row in rows %}
+<li class="lonceng-item">
+  <a href="{{ row.tautan }}">
+    <span class="f-12 text-muted d-block">{{ row.daftar }}</span>
+    <span class="f-w-600 d-block">{{ row.judul }}</span>
+    <span class="d-block f-12">{{ row.tugas }}</span>
+    <span class="d-block f-12 text-muted">Di tahap ini {{ row.di_tahap }}</span>
+  </a>
+</li>
+{% empty %}
+<li class="noti-empty">
+  <p class="mb-0 text-muted">Tidak ada tugas</p>
+</li>
+{% endfor %}
+{% if can_open %}
+<li class="lonceng-semua"><a href="{% url 'cctv:tasklist' %}">Lihat semua di Tasklist</a></li>
+{% endif %}
