@@ -136,7 +136,7 @@ class DashboardCoverageTests(TestCase):
         self.assertContains(response, 'aria-label="Penjelasan Tercover"')
         self.assertContains(response, 'aria-label="Penjelasan Potensi"')
         self.assertContains(response, 'aria-label="Penjelasan Tidak tercover"')
-        self.assertContains(response, 'aria-label="Penjelasan Luas area (ha)"')
+        self.assertContains(response, 'aria-label="Penjelasan Luas Area Kerja (ha)"')
         self.assertContains(response, 'Area yang dilihat beberapa CCTV hanya dihitung satu kali.')
         self.assertContains(response, 'Overlap antarjenis dihitung sekali menurut prioritas Pit')
 
@@ -149,8 +149,8 @@ class DashboardCoverageTests(TestCase):
         self.assertAlmostEqual(response.context['kpi_high_risk']['persen']['tercover'], 25.0, delta=0.5)
         self.assertAlmostEqual(response.context['kpi']['luas'], response.context['kpi_high_risk']['luas'], delta=0.01)
         self.assertContains(response, '<span class="m-0">Tercover</span>', count=2, html=True)
-        self.assertContains(response, 'Luas High Risk (ha)')
-        self.assertContains(response, 'tidak ditambahkan ke Luas area kerja')
+        self.assertContains(response, 'Luas Area High Risk (ha)')
+        self.assertContains(response, 'tidak ditambahkan ke Luas Area Kerja')
         kinds = [line['jenis'] for line in response.context['tabel'][0]['jenis']]
         self.assertEqual(kinds, ['pit', 'high_risk'])
 

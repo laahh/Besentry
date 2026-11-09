@@ -30,7 +30,7 @@
   {% include "dashboard/partials/stat_card.html" with color="primary" icon="video" label="Tercover" value=kpi_teks.tercover info="Persentase luas area kerja yang masuk union boundary CCTV aktif. Area yang dilihat beberapa CCTV hanya dihitung satu kali." %}
   {% include "dashboard/partials/stat_card.html" with color="secondary" icon="alert-triangle" label="Potensi" value=kpi_teks.potensi info="Persentase luas area kerja yang hanya masuk boundary CCTV offline, breakdown, atau repair, setelah coverage CCTV aktif dikeluarkan." %}
   {% include "dashboard/partials/stat_card.html" with color="primary" icon="eye-off" label="Tidak tercover" value=kpi_teks.tidak info="Persentase luas area kerja di luar seluruh boundary CCTV yang dihitung, baik CCTV aktif maupun yang berpotensi." %}
-  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="map" label="Luas area (ha)" value=kpi.luas|floatformat:2 info="Total luas area kerja sesuai filter. Overlap antarjenis dihitung sekali menurut prioritas Pit, Hauling, Infra Tambang, lalu Infra Non Tambang." %}
+  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="map" label="Luas Area Kerja (ha)" value=kpi.luas|floatformat:2 info="Total luas area kerja sesuai filter. Overlap antarjenis dihitung sekali menurut prioritas Pit, Hauling, Infra Tambang, lalu Infra Non Tambang." %}
 </div>
 
 <div class="d-flex align-items-center gap-2 mb-2">
@@ -41,7 +41,7 @@
   {% include "dashboard/partials/stat_card.html" with color="primary" icon="shield" label="Tercover" value=kpi_high_risk_teks.tercover info="Persentase boundary High Risk yang masuk union boundary CCTV aktif. Overlap dengan area kerja tidak mengubah hitungan ini." %}
   {% include "dashboard/partials/stat_card.html" with color="secondary" icon="alert-triangle" label="Potensi" value=kpi_high_risk_teks.potensi info="Persentase boundary High Risk yang hanya masuk boundary CCTV offline, breakdown, atau repair, setelah coverage aktif dikeluarkan." %}
   {% include "dashboard/partials/stat_card.html" with color="primary" icon="shield-off" label="Tidak Tercover" value=kpi_high_risk_teks.tidak info="Persentase boundary High Risk di luar seluruh boundary CCTV aktif maupun yang berpotensi." %}
-  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="map" label="Luas High Risk (ha)" value=kpi_high_risk.luas|floatformat:2 info="Total luas boundary High Risk sesuai filter. Nilai ini dihitung terpisah dan tidak ditambahkan ke Luas area kerja." %}
+  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="map" label="Luas Area High Risk (ha)" value=kpi_high_risk.luas|floatformat:2 info="Total luas boundary High Risk sesuai filter. Nilai ini dihitung terpisah dan tidak ditambahkan ke Luas Area Kerja." %}
 </div>
 
 <div class="info-blok info-blok-tipis mb-3">
