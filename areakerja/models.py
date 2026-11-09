@@ -11,12 +11,21 @@ from core.models import Perusahaan, Site
 
 
 class JenisArea(models.TextChoices):
-    """The four kinds of work area, highest priority first: an overlap belongs to the earlier kind."""
+    """The work-area kinds. High Risk is independent and may overlap every operational kind."""
 
     PIT = 'pit', 'Pit'
     HAULING = 'hauling', 'Hauling'
     INFRA_TAMBANG = 'infra_tambang', 'Infra Tambang'
     INFRA_NON_TAMBANG = 'infra_non_tambang', 'Infra Non Tambang'
+    HIGH_RISK = 'high_risk', 'Area High Risk'
+
+
+JENIS_AREA_UTAMA = (
+    JenisArea.PIT,
+    JenisArea.HAULING,
+    JenisArea.INFRA_TAMBANG,
+    JenisArea.INFRA_NON_TAMBANG,
+)
 
 
 class MitraSiteQuerySet(models.QuerySet):
@@ -55,7 +64,7 @@ class MitraSite(models.Model):
 
 
 class PengajuanAreaKerja(models.Model):
-    """One Mitra Site's work areas for one week (Monday to Sunday, WITA): four slots, one per kind.
+    """One Mitra Site's work areas for one week (Monday to Sunday, WITA): five slots, one per kind.
 
     Draft -> Waiting Verifikasi BC -> Approved, or back to the uploader and again. The uploader is the
     Mitra (Survey Mitra), or Survey BC for PT Berau Coal's own areas. Verifikasi BC is SGI, Mining and
@@ -143,8 +152,11 @@ class PengajuanAreaKerja(models.Model):
 
 
 class AreaKerja(models.Model):
-    """One kind of work area inside a request. `geom` is after the priority clip (no overlap with a
-    higher kind); `geom_upload` is as uploaded, dissolved, before the clip."""
+    """One kind of area inside a request.
+
+    For the four operational kinds, `geom` is after the priority clip and `geom_upload` is the
+    dissolved upload before clipping. High Risk is independent, so its two geometries are equal.
+    """
 
     class Sumber(models.TextChoices):
         UPLOAD = 'upload', 'Upload SHP'
@@ -275,6 +287,7 @@ class HasilCoverage(models.Model):
     The three add up to the area."""
 
     mode = models.CharField(max_length=10, choices=ModeKalkulasi.choices)
+    dengan_ptz = models.BooleanField(default=False, help_text='Sertakan CCTV PTZ dan PTZ & Fixed.')
     jenis = models.CharField(max_length=20, choices=JenisArea.choices)
     luas_ha = models.FloatField(default=0)
     tercover_ha = models.FloatField(default=0)
@@ -317,7 +330,9 @@ class CoverageLive(HasilCoverage):
     class Meta:
         verbose_name = 'coverage live'
         verbose_name_plural = 'coverage live'
-        constraints = [models.UniqueConstraint(fields=['mitra_site', 'mode', 'jenis'], name='coverage_live_unik')]
+        constraints = [models.UniqueConstraint(
+            fields=['mitra_site', 'mode', 'jenis', 'dengan_ptz'], name='coverage_live_unik',
+        )]
 
 
 class SnapshotCoverage(models.Model):
@@ -365,4 +380,6 @@ class SnapshotCoverageJenis(HasilCoverage):
     class Meta:
         verbose_name = 'hasil snapshot coverage'
         verbose_name_plural = 'hasil snapshot coverage'
-        constraints = [models.UniqueConstraint(fields=['snapshot', 'mode', 'jenis'], name='snapshot_coverage_jenis_unik')]
+        constraints = [models.UniqueConstraint(
+            fields=['snapshot', 'mode', 'jenis', 'dengan_ptz'], name='snapshot_coverage_jenis_unik',
+        )]

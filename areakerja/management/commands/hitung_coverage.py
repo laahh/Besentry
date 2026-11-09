@@ -12,6 +12,15 @@ from areakerja import kalkulasi
 class Command(BaseCommand):
     help = 'Hitung ulang coverage CCTV week berjalan untuk semua Mitra Site aktif.'
 
-    def handle(self, **options):
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--snapshot', action='store_true',
+            help='Hitung ulang juga seluruh snapshot historis untuk varian dengan dan tanpa PTZ.',
+        )
+
+    def handle(self, snapshot=False, **options):
         done = kalkulasi.hitung_live()
         self.stdout.write(self.style.SUCCESS(f'Coverage week berjalan dihitung untuk {done} Mitra Site.'))
+        if snapshot:
+            locked = kalkulasi.hitung_ulang_snapshot()
+            self.stdout.write(self.style.SUCCESS(f'{locked} snapshot historis dihitung ulang.'))

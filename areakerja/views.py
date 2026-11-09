@@ -24,12 +24,15 @@ from orthophoto.models import Orthophoto
 from . import access, kalkulasi, services
 from .forms import AjukanForm, AnotasiForm, SlotForm, VerifikasiForm
 from .models import (
-    AreaKerja, CoverageLive, Departemen, JenisArea, MitraSite, PengajuanAreaKerja, SnapshotCoverage,
+    AreaKerja, CoverageLive, Departemen, JENIS_AREA_UTAMA, JenisArea, MitraSite, PengajuanAreaKerja, SnapshotCoverage,
     SnapshotCoverageJenis,
 )
 
 Status = PengajuanAreaKerja.Status
-WARNA = {'pit': '9C6B3C', 'hauling': 'D9822B', 'infra_tambang': '2F9E5B', 'infra_non_tambang': '4C7DBF'}
+WARNA = {
+    'pit': '9C6B3C', 'hauling': 'D9822B', 'infra_tambang': '2F9E5B',
+    'infra_non_tambang': '4C7DBF', 'high_risk': 'C62828',
+}
 TABS = (('pengajuan', 'Pengajuan area kerja'), ('sgi', 'Verifikasi BC'), ('selesai', 'Sah & berlaku'))
 # PT Berau Coal: Survey BC uploads; the same Verifikasi BC follows.
 TABS_GABUNG = (('pengajuan', 'Upload area kerja Survey BC'), ('sgi', 'Verifikasi BC'), ('selesai', 'Sah & berlaku'))
@@ -82,11 +85,13 @@ def index(request):
     # Coverage (official mode): live for the running week, the locked snapshot for a closed one.
     hasil, snapshot = {}, {}
     if minggu == this_monday():
-        for row in CoverageLive.objects.filter(mitra_site__in=sites).defer('geom_tercover', 'geom_potensi', 'geom_tidak'):
+        for row in CoverageLive.objects.filter(mitra_site__in=sites, dengan_ptz=False).defer(
+                'geom_tercover', 'geom_potensi', 'geom_tidak'):
             hasil.setdefault(row.mitra_site_id, []).append(row)
     else:
         for snap in SnapshotCoverage.objects.filter(minggu=minggu, mitra_site__in=sites).prefetch_related(
-                Prefetch('hasil', SnapshotCoverageJenis.objects.defer('geom_tercover', 'geom_potensi', 'geom_tidak'))):
+                Prefetch('hasil', SnapshotCoverageJenis.objects.filter(dengan_ptz=False).defer(
+                    'geom_tercover', 'geom_potensi', 'geom_tidak'))):
             snapshot[snap.mitra_site_id] = snap
             hasil[snap.mitra_site_id] = list(snap.hasil.all())
     rows = []
@@ -191,7 +196,10 @@ def page(request, pk):
         'tabs': [(key, label, i < reached, i == reached, not selesai or key == tahap) for i, (key, label) in enumerate(tabs)],
         'tab_terbuka': keys[:reached + 1],
         'slots': slots, 'lalu': lalu, 'peta': peta,
-        'total_ha': round(sum(s['area'].luas_ha or 0 for s in slots if s['area']), 2),
+        'total_ha': round(sum(s['area'].luas_ha or 0 for s in slots
+                              if s['area'] and s['jenis'] in JENIS_AREA_UTAMA), 2),
+        'high_risk_ha': round(sum(s['area'].luas_ha or 0 for s in slots
+                                  if s['area'] and s['jenis'] == JenisArea.HIGH_RISK), 2),
         'lengkap': all(s['area'] for s in slots),
         'can': {
             'edit': can_edit,

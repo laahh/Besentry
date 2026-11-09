@@ -118,7 +118,7 @@
       </div>
     </div>
     {% endfor %}
-    <p class="f-12 text-muted">Zip berisi .shp, .shx, .dbf, .prj; CRS UTM 50N; boleh banyak feature. Polygon di dalam satu jenis digabung (dissolve); tumpang tindih antar jenis dipotong mengikuti prioritas Pit → Hauling → Infra Tambang → Infra Non Tambang. Area di luar extent orthophoto aktif ditolak.</p>
+    <p class="f-12 text-muted">Zip berisi .shp, .shx, .dbf, .prj; CRS UTM 50N; boleh banyak feature. Polygon di dalam satu jenis digabung (dissolve); tumpang tindih empat area kerja dipotong mengikuti prioritas Pit → Hauling → Infra Tambang → Infra Non Tambang. Area High Risk dihitung terpisah dan boleh overlap dengan keempatnya. Area di luar extent orthophoto aktif ditolak.</p>
     {% if anotasi %}{% include "areakerja/partials/anotasi.html" %}{% endif %}
     {% if can.ajukan %}
     <form method="post" action="{% url 'areakerja:ajukan' p.pk %}" class="card verif-card">
@@ -127,7 +127,7 @@
         <h6>Ajukan ke Verifikasi BC</h6>
         <textarea class="form-control mb-2" name="catatan" rows="2" placeholder="Catatan (opsional)">{{ p.catatan }}</textarea>
         <button class="btn btn-primary w-100" type="submit"{% if not lengkap %} disabled{% endif %}>Ajukan ke Verifikasi BC</button>
-        <p class="f-12 text-muted mt-2 mb-0">{% if not lengkap %}Isi keempat jenis area dulu (upload, gunakan area minggu lalu, atau tidak ada). {% endif %}Diverifikasi bersama oleh SGI, Mining, dan Safety BC.</p>
+        <p class="f-12 text-muted mt-2 mb-0">{% if not lengkap %}Isi kelima jenis area dulu (upload, gunakan area minggu lalu, atau tidak ada). {% endif %}Diverifikasi bersama oleh SGI, Mining, dan Safety BC.</p>
       </div>
     </form>
     {% endif %}
@@ -144,7 +144,8 @@
               <td class="text-end">{% if s.area and s.area.luas_ha %}{{ s.area.luas_ha|floatformat:2 }} ha{% elif s.area %}<span class="text-muted">tidak ada</span>{% else %}-{% endif %}</td>
             </tr>
             {% endfor %}
-            <tr><td class="f-w-600">Total</td><td class="text-end f-w-600">{{ total_ha|floatformat:2 }} ha</td></tr>
+            <tr><td class="f-w-600">Total area kerja</td><td class="text-end f-w-600">{{ total_ha|floatformat:2 }} ha</td></tr>
+            <tr><td class="f-w-600">Luas High Risk</td><td class="text-end f-w-600">{{ high_risk_ha|floatformat:2 }} ha</td></tr>
           </tbody>
         </table>
       </div>

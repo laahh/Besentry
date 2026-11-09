@@ -51,7 +51,7 @@ class MitraSiteTests(TestCase):
             MitraSite.objects.create(site=site, perusahaan=bc)
 
     def test_priority_order(self):
-        self.assertEqual(JENIS, ['pit', 'hauling', 'infra_tambang', 'infra_non_tambang'])
+        self.assertEqual(JENIS, ['pit', 'hauling', 'infra_tambang', 'infra_non_tambang', 'high_risk'])
 
 
 @override_settings(MEDIA_ROOT='/tmp/besentry-test-media')
@@ -79,9 +79,9 @@ class AreaKerjaTests(TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def fill(self, pengajuan, user, pit=None, hauling=None):
-        """Pit and hauling uploaded (when given), the other kinds 'none'."""
-        for jenis, polygons in (('pit', pit), ('hauling', hauling)):
+    def fill(self, pengajuan, user, pit=None, hauling=None, high_risk=None):
+        """Selected kinds are uploaded; every other weekly slot is explicitly marked absent."""
+        for jenis, polygons in (('pit', pit), ('hauling', hauling), ('high_risk', high_risk)):
             if polygons:
                 services.save_slot(pengajuan, user, jenis, 'upload', shp_zip(polygons))
             else:
@@ -102,6 +102,16 @@ class AreaKerjaTests(TestCase):
         self.assertAlmostEqual(pit_area.luas_ha, 2 * (hauling_area.luas_ha + hauling_area.dipotong_ha), delta=0.01)
         self.assertAlmostEqual(hauling_area.luas_ha, hauling_area.dipotong_ha, delta=0.01)
         self.assertFalse(pit_area.geom.intersection(hauling_area.geom).area > 1e-12)
+
+    def test_high_risk_keeps_overlap_and_is_not_clipped(self):
+        pengajuan = services.request_for(self.mitra_site, self.mitra)
+        overlap = square(*CAMERA)
+        pengajuan = self.fill(pengajuan, self.mitra, pit=[overlap], high_risk=[overlap])
+        pit, high_risk = pengajuan.slot('pit'), pengajuan.slot('high_risk')
+
+        self.assertAlmostEqual(high_risk.luas_ha, pit.luas_ha, delta=0.01)
+        self.assertAlmostEqual(high_risk.geom.intersection(pit.geom).area, pit.geom.area, delta=1e-12)
+        self.assertEqual(high_risk.dipotong_ha, 0)
 
     def test_upload_rules(self):
         pengajuan = services.request_for(self.mitra_site, self.mitra)
@@ -366,9 +376,10 @@ class CoverageTests(TestCase):
         del pending[start:]
 
     def cctv(self, no, boundary, perusahaan=None, **fields):
+        jenis = fields.pop('jenis', 'fixed')
         with self.committed():
             cctv = Cctv.objects.create(no_cctv=no, nama=no, site=self.site, perusahaan=perusahaan or self.pama,
-                                       jenis='fixed', posisi=Point(self.X, self.Y, srid=4326), **fields)
+                                       jenis=jenis, posisi=Point(self.X, self.Y, srid=4326), **fields)
             CctvCoverage.objects.create(cctv=cctv, minggu=W45, geom=MultiPolygon(boundary, srid=4326))
         return cctv
 
@@ -389,7 +400,21 @@ class CoverageTests(TestCase):
             return kalkulasi.tutup_minggu(W45)
 
     def live(self, mode='milik', jenis='pit'):
-        return CoverageLive.objects.get(mitra_site=self.mitra_site, mode=mode, jenis=jenis)
+        return CoverageLive.objects.get(mitra_site=self.mitra_site, mode=mode, jenis=jenis, dengan_ptz=False)
+
+    def test_ptz_is_optional_and_excluded_by_default(self):
+        self.area()
+        self.cctv('FIXED', square(self.X, self.Y, 0.002), jenis='fixed')
+        self.cctv('PTZ', square(self.X + 0.002, self.Y, 0.002), jenis='ptz')
+        self.cctv('HYBRID', square(self.X, self.Y + 0.002, 0.002), jenis='ptz_fixed')
+
+        tanpa = self.live()
+        dengan = CoverageLive.objects.get(
+            mitra_site=self.mitra_site, mode='milik', jenis='pit', dengan_ptz=True,
+        )
+        self.assertAlmostEqual(tanpa.persen_tercover, 25.0, delta=0.5)
+        self.assertAlmostEqual(dengan.persen_tercover, 75.0, delta=0.5)
+        self.assertEqual((tanpa.jumlah_cctv, dengan.jumlah_cctv), (1, 3))
 
     def test_how_a_camera_counts(self):
         cases = {('live', 'baik'): 'aktif', ('post_event', 'baik'): 'aktif', ('offline', 'baik'): 'mati',
@@ -428,18 +453,37 @@ class CoverageTests(TestCase):
         self.assertEqual(total['persen']['tercover'], 95.2)
         self.assertEqual((total['luas'], total['tercover']), (0.0686, 0.0653))
 
+    def test_high_risk_coverage_is_calculated_separately(self):
+        with self.committed():
+            pengajuan = services.request_for(self.mitra_site, self.user)
+            boundary = square(self.X, self.Y, 0.004)
+            services.save_slot(pengajuan, self.user, 'pit', 'upload', shp_zip([boundary]))
+            services.save_slot(pengajuan, self.user, 'high_risk', 'upload', shp_zip([boundary]))
+            for jenis in ('hauling', 'infra_tambang', 'infra_non_tambang'):
+                services.save_slot(pengajuan, self.user, jenis, 'tidak_ada')
+            services.ajukan(pengajuan, self.user)
+            setujui_semua(pengajuan, self.user)
+        self.cctv('A', square(self.X, self.Y, 0.002))
+
+        rows = list(CoverageLive.objects.filter(mitra_site=self.mitra_site, dengan_ptz=False))
+        main = kalkulasi.ringkasan(rows)
+        high_risk = kalkulasi.ringkasan(rows, jenis=[JenisArea.HIGH_RISK])
+        self.assertAlmostEqual(main['luas'], high_risk['luas'], delta=0.01)
+        self.assertAlmostEqual(main['persen']['tercover'], 25.0, delta=0.5)
+        self.assertAlmostEqual(high_risk['persen']['tercover'], 25.0, delta=0.5)
+
     def test_closed_week_is_locked(self):
         self.area()
         self.cctv('A', square(self.X, self.Y, 0.002))
         close_week(W45)
         self.assertEqual(self.tutup(), (1, 0))
         snap = SnapshotCoverage.objects.get(minggu=W45, mitra_site=self.mitra_site)
-        pit = snap.hasil.get(mode='milik', jenis='pit')
+        pit = snap.hasil.get(mode='milik', jenis='pit', dengan_ptz=False)
         self.assertEqual((snap.status, snap.fallback, snap.pilihan_slot['pit']['sumber']), ('terkunci', False, 'upload'))
         self.assertAlmostEqual(pit.persen_tercover, 25.0, delta=0.5)
         self.cctv('B', square(self.X + 0.002, self.Y, 0.002))  # later changes do not touch a locked week
         self.assertEqual(self.tutup(), (0, 0))
-        self.assertAlmostEqual(snap.hasil.get(mode='milik', jenis='pit').persen_tercover, 25.0, delta=0.5)
+        self.assertAlmostEqual(snap.hasil.get(mode='milik', jenis='pit', dengan_ptz=False).persen_tercover, 25.0, delta=0.5)
 
     def test_week_waits_for_a_late_approval(self):
         w44 = W45 - datetime.timedelta(days=7)
@@ -456,7 +500,7 @@ class CoverageTests(TestCase):
             setujui_semua(pengajuan, self.user)  # the third approval locks it right away
         snap.refresh_from_db()
         self.assertEqual((snap.status, snap.minggu_area, snap.catatan), ('terkunci', W45, 'Approved terlambat'))
-        self.assertAlmostEqual(snap.hasil.get(mode='milik', jenis='pit').persen_tercover, 100.0, delta=0.5)
+        self.assertAlmostEqual(snap.hasil.get(mode='milik', jenis='pit', dengan_ptz=False).persen_tercover, 100.0, delta=0.5)
 
     def test_wait_ends_with_the_fallback(self):
         w44 = W45 - datetime.timedelta(days=7)

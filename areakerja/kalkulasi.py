@@ -27,12 +27,14 @@ from cctv.snapshot import boundaries
 
 from . import services
 from .models import (
-    CoverageLive, JenisArea, MitraSite, ModeKalkulasi, PengajuanAreaKerja, SnapshotCoverage, SnapshotCoverageJenis,
+    CoverageLive, JENIS_AREA_UTAMA, JenisArea, MitraSite, ModeKalkulasi, PengajuanAreaKerja, SnapshotCoverage,
+    SnapshotCoverageJenis,
 )
 
 logger = logging.getLogger(__name__)
 QUEUE = 'coverage'
 JENIS = [jenis.value for jenis in JenisArea]
+JENIS_UTAMA = [jenis.value for jenis in JENIS_AREA_UTAMA]
 TUNGGU_HARI = 7  # a late week waits at most one more week after it closes
 
 # Status / kondisi of a CCTV -> how it counts. Dismantled or taken out: not at all.
@@ -56,29 +58,33 @@ def kelompok(status, kondisi):
 class Kamera:
     site_id: int
     perusahaan_id: int
+    jenis: str
     kelompok: str
     geom: GEOSGeometry  # UTM 50N
 
 
 def _kamera(rows):
-    """[(site_id, perusahaan_id, status, kondisi, boundary 4326)] -> counted cameras with a boundary."""
+    """Camera attributes and boundaries -> counted cameras in UTM 50N."""
     result = []
-    for site_id, perusahaan_id, status, kondisi, geom in rows:
+    for site_id, perusahaan_id, jenis, status, kondisi, geom in rows:
         group = kelompok(status, kondisi)
         if group and geom is not None and not geom.empty:
-            result.append(Kamera(site_id, perusahaan_id, group, geom.transform(UTM_50N, clone=True)))
+            result.append(Kamera(site_id, perusahaan_id, jenis, group, geom.transform(UTM_50N, clone=True)))
     return result
 
 
 def kamera_live():
     boundary_of = boundaries()
-    rows = Cctv.objects.filter(pk__in=list(boundary_of)).values_list('pk', 'site_id', 'perusahaan_id', 'status', 'kondisi')
-    return _kamera((s, p, st, k, boundary_of[pk]) for pk, s, p, st, k in rows)
+    rows = Cctv.objects.filter(pk__in=list(boundary_of)).values_list(
+        'pk', 'site_id', 'perusahaan_id', 'jenis', 'status', 'kondisi',
+    )
+    return _kamera((s, p, j, st, k, boundary_of[pk]) for pk, s, p, j, st, k in rows)
 
 
 def kamera_snapshot(minggu):
     rows = SnapshotMingguan.objects.filter(minggu=minggu, coverage__isnull=False).values_list('data', 'coverage')
-    return _kamera((d.get('site_id'), d.get('perusahaan_id'), d.get('status'), d.get('kondisi'), g) for d, g in rows)
+    return _kamera((d.get('site_id'), d.get('perusahaan_id'), d.get('jenis'), d.get('status'), d.get('kondisi'), g)
+                   for d, g in rows)
 
 
 def _union(geoms):
@@ -105,35 +111,39 @@ def _ha(geom):
 
 
 def hitung(mitra_site, areas, kamera):
-    """{jenis: MultiPolygon 4326 or None} x cameras -> [dict of HasilCoverage fields] for both modes x 4 kinds."""
+    """Area geometries x cameras -> coverage rows for both modes and all five area kinds."""
     local = {jenis: (areas.get(jenis).transform(UTM_50N, clone=True) if areas.get(jenis) else None) for jenis in JENIS}
     present = [geom for geom in local.values() if geom is not None]
     extent = _union(present).envelope if present else None
     nearby = [k for k in kamera if extent is not None and k.geom.intersects(extent)]
-    modes = {
-        ModeKalkulasi.MILIK: [k for k in nearby if (k.site_id, k.perusahaan_id) == (mitra_site.site_id, mitra_site.perusahaan_id)],
-        ModeKalkulasi.SEMUA: nearby,
-    }
     results = []
-    for mode, cams in modes.items():
-        aktif = _union(k.geom for k in cams if k.kelompok == 'aktif')
-        mati = _union(k.geom for k in cams if k.kelompok == 'mati')
-        semua = _union([g for g in (aktif, mati) if g is not None])
-        for jenis in JENIS:
-            area = local[jenis]
-            row = {'mode': mode, 'jenis': jenis, 'luas_ha': _ha(area), 'jumlah_cctv': 0,
+    for dengan_ptz in (False, True):
+        eligible = nearby if dengan_ptz else [k for k in nearby if k.jenis not in (Cctv.Jenis.PTZ, Cctv.Jenis.PTZ_FIXED)]
+        modes = {
+            ModeKalkulasi.MILIK: [k for k in eligible if (k.site_id, k.perusahaan_id) ==
+                                  (mitra_site.site_id, mitra_site.perusahaan_id)],
+            ModeKalkulasi.SEMUA: eligible,
+        }
+        for mode, cams in modes.items():
+            aktif = _union(k.geom for k in cams if k.kelompok == 'aktif')
+            mati = _union(k.geom for k in cams if k.kelompok == 'mati')
+            semua = _union([g for g in (aktif, mati) if g is not None])
+            for jenis in JENIS:
+                area = local[jenis]
+                row = {'mode': mode, 'jenis': jenis, 'dengan_ptz': dengan_ptz,
+                       'luas_ha': _ha(area), 'jumlah_cctv': 0,
                    'tercover_ha': 0.0, 'potensi_ha': 0.0, 'tidak_ha': _ha(area),
                    'geom_tercover': None, 'geom_potensi': None, 'geom_tidak': _back(area)}
-            if area is not None:
-                tercover = area.intersection(aktif) if aktif is not None else None
-                potensi = area.intersection(mati.difference(aktif) if aktif is not None else mati) if mati is not None else None
-                tidak = area.difference(semua) if semua is not None else area
-                row.update(
-                    tercover_ha=_ha(tercover), potensi_ha=_ha(potensi), tidak_ha=_ha(tidak),
-                    geom_tercover=_back(tercover), geom_potensi=_back(potensi), geom_tidak=_back(tidak),
-                    jumlah_cctv=sum(1 for k in cams if k.geom.intersects(area)),
-                )
-            results.append(row)
+                if area is not None:
+                    tercover = area.intersection(aktif) if aktif is not None else None
+                    potensi = area.intersection(mati.difference(aktif) if aktif is not None else mati) if mati is not None else None
+                    tidak = area.difference(semua) if semua is not None else area
+                    row.update(
+                        tercover_ha=_ha(tercover), potensi_ha=_ha(potensi), tidak_ha=_ha(tidak),
+                        geom_tercover=_back(tercover), geom_potensi=_back(potensi), geom_tidak=_back(tidak),
+                        jumlah_cctv=sum(1 for k in cams if k.geom.intersects(area)),
+                    )
+                results.append(row)
     return results
 
 
@@ -268,9 +278,32 @@ def selesaikan_menunggu(mitra_site=None, today=None):
     return done
 
 
-def ringkasan(rows, mode=ModeKalkulasi.MILIK):
-    """Totals over the kinds for one mode: {luas, tercover, potensi, tidak} in ha and percent."""
-    rows = [r for r in rows if r.mode == mode]
+@transaction.atomic
+def hitung_ulang_snapshot():
+    """Rebuild both PTZ variants for every locked historical snapshot without changing its metadata."""
+    done = 0
+    kamera_per_minggu = {}
+    snapshots = SnapshotCoverage.objects.filter(status=SnapshotCoverage.Status.TERKUNCI).select_related(
+        'mitra_site', 'pengajuan',
+    )
+    for snapshot in snapshots.iterator(chunk_size=100):
+        if snapshot.minggu not in kamera_per_minggu:
+            kamera_per_minggu[snapshot.minggu] = kamera_snapshot(snapshot.minggu)
+        kamera = kamera_per_minggu[snapshot.minggu]
+        rows = hitung(snapshot.mitra_site, areas_of(snapshot.pengajuan), kamera)
+        SnapshotCoverageJenis.objects.filter(snapshot=snapshot).delete()
+        SnapshotCoverageJenis.objects.bulk_create([
+            SnapshotCoverageJenis(snapshot=snapshot, **row) for row in rows
+        ])
+        done += 1
+    return done
+
+
+def ringkasan(rows, mode=ModeKalkulasi.MILIK, jenis=None, dengan_ptz=None):
+    """Totals for one mode and a set of kinds; defaults to the four operational work areas."""
+    jenis = JENIS_UTAMA if jenis is None else list(jenis)
+    rows = [r for r in rows if r.mode == mode and r.jenis in jenis and
+            (dengan_ptz is None or r.dengan_ptz == dengan_ptz)]
     luas = sum(r.luas_ha for r in rows)
     total = {key: sum(getattr(r, f'{key}_ha') for r in rows) for key in ('tercover', 'potensi', 'tidak')}
     # Percentages from the exact sums: rounding the hectares first can push a small area past 100%.

@@ -75,6 +75,38 @@
   cursor: pointer;
 }
 
+.stat-card-info {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  color: currentColor;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 50%;
+  opacity: 0.85;
+}
+
+.stat-card-info:hover,
+.stat-card-info:focus {
+  color: currentColor;
+  background: rgba(255, 255, 255, 0.28);
+  opacity: 1;
+  outline: none;
+  box-shadow: 0 0 0 0.15rem rgba(255, 255, 255, 0.22);
+}
+
+.stat-card-info svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
 /* Feather icons inside buttons and tabs, at text size */
 .btn svg,
 .nav-tabs .nav-link svg {
@@ -971,6 +1003,82 @@
 }
 
 /* Dashboard Coverage */
+.coverage-filter-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(110px, .8fr)
+    minmax(220px, 1.45fr)
+    minmax(190px, 1.15fr)
+    minmax(150px, 1fr)
+    minmax(145px, auto)
+    auto;
+  gap: .75rem;
+  align-items: end;
+}
+
+.coverage-filter-field {
+  min-width: 0;
+}
+
+.coverage-filter-field .form-select {
+  width: 100%;
+}
+
+.coverage-ptz-switch {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  min-height: 31px;
+  margin: 0;
+  padding: 0;
+}
+
+.coverage-ptz-switch .form-check-input {
+  flex: 0 0 auto;
+  float: none;
+  margin: 0;
+}
+
+.coverage-ptz-switch .form-check-label {
+  display: flex;
+  align-items: center;
+  min-height: 31px;
+  line-height: 1;
+}
+
+.coverage-filter-actions {
+  display: flex;
+  gap: .4rem;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.coverage-filter-actions .btn {
+  min-height: 31px;
+  padding-inline: .75rem;
+}
+
+@media (max-width: 1199.98px) {
+  .coverage-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .coverage-filter-actions {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .coverage-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .coverage-filter-actions {
+    grid-column: auto;
+    flex-wrap: wrap;
+  }
+}
+
 .peta-dashboard {
   /* The page's main exhibit: most of the screen below the header, never cramped. */
   height: calc(100vh - 240px);
@@ -1033,6 +1141,23 @@
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 6px;
+}
+
+.overlay-ptz-switch {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  min-height: 31px;
+  margin: 0;
+  padding: 0 .35rem;
+  color: #3f4a43;
+  font-weight: 600;
+}
+
+.overlay-ptz-switch .form-check-input {
+  flex: 0 0 auto;
+  float: none;
+  margin: 0;
 }
 
 .peta-timeline {
