@@ -9,7 +9,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from areakerja import services as area_services
-from areakerja.models import AreaKerja, Departemen, MitraSite, PengajuanAreaKerja
+from areakerja.models import AreaKerja, Departemen, JenisArea, MitraSite, PengajuanAreaKerja
 from cctv.models import CakupanCctv, Cctv, PengajuanCoverage
 from core.models import Karyawan, Perusahaan, Site
 from navigation import roles
@@ -53,7 +53,7 @@ class AreaKerjaNotifyBase(TestCase):
         pengajuan = PengajuanAreaKerja.objects.create(
             mitra_site=mitra_site or self.mitra_site, minggu=MONDAY, status=status, diajukan_oleh=self.uploader,
         )
-        for jenis in ('pit', 'hauling', 'infra_tambang', 'infra_non_tambang'):
+        for jenis in JenisArea:
             AreaKerja.objects.create(pengajuan=pengajuan, jenis=jenis, sumber=AreaKerja.Sumber.TIDAK_ADA)
         return pengajuan
 

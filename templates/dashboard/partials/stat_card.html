@@ -1,6 +1,12 @@
 <div class="{{ col|default:'col-sm-6 col-xl-3 col-lg-6' }}">
   <div class="card o-hidden border-0">
-    <div class="bg-{{ color }} b-r-4 card-body">
+    <div class="bg-{{ color }} b-r-4 card-body position-relative">
+      {% if info %}
+      <button class="stat-card-info" type="button" data-bs-toggle="tooltip" data-bs-placement="top"
+              title="{{ info }}" aria-label="Penjelasan {{ label }}">
+        <i data-feather="info"></i>
+      </button>
+      {% endif %}
       <div class="media static-top-widget">
         <div class="align-self-center text-center"><i data-feather="{{ icon }}"></i></div>
         <div class="media-body"><span class="m-0">{{ label }}</span>

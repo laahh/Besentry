@@ -27,53 +27,73 @@
 {% include "partials/messages.html" %}
 
 <div class="row">
-  {% include "dashboard/partials/stat_card.html" with color="primary" icon="video" label="Tercover" value=kpi_teks.tercover %}
-  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="alert-triangle" label="Potensi" value=kpi_teks.potensi %}
-  {% include "dashboard/partials/stat_card.html" with color="primary" icon="eye-off" label="Tidak tercover" value=kpi_teks.tidak %}
-  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="map" label="Luas area (ha)" value=kpi.luas|floatformat:2 %}
+  {% include "dashboard/partials/stat_card.html" with color="primary" icon="video" label="Tercover" value=kpi_teks.tercover info="Persentase luas area kerja yang masuk union boundary CCTV aktif. Area yang dilihat beberapa CCTV hanya dihitung satu kali." %}
+  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="alert-triangle" label="Potensi" value=kpi_teks.potensi info="Persentase luas area kerja yang hanya masuk boundary CCTV offline, breakdown, atau repair, setelah coverage CCTV aktif dikeluarkan." %}
+  {% include "dashboard/partials/stat_card.html" with color="primary" icon="eye-off" label="Tidak tercover" value=kpi_teks.tidak info="Persentase luas area kerja di luar seluruh boundary CCTV yang dihitung, baik CCTV aktif maupun yang berpotensi." %}
+  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="map" label="Luas area (ha)" value=kpi.luas|floatformat:2 info="Total luas area kerja sesuai filter. Overlap antarjenis dihitung sekali menurut prioritas Pit, Hauling, Infra Tambang, lalu Infra Non Tambang." %}
+</div>
+
+<div class="d-flex align-items-center gap-2 mb-2">
+  <h5 class="mb-0">Boundary High Risk</h5>
+  <span class="f-12 text-muted">dihitung terpisah dan boleh overlap dengan area kerja</span>
+</div>
+<div class="row">
+  {% include "dashboard/partials/stat_card.html" with color="primary" icon="shield" label="Tercover" value=kpi_high_risk_teks.tercover info="Persentase boundary High Risk yang masuk union boundary CCTV aktif. Overlap dengan area kerja tidak mengubah hitungan ini." %}
+  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="alert-triangle" label="Potensi" value=kpi_high_risk_teks.potensi info="Persentase boundary High Risk yang hanya masuk boundary CCTV offline, breakdown, atau repair, setelah coverage aktif dikeluarkan." %}
+  {% include "dashboard/partials/stat_card.html" with color="primary" icon="shield-off" label="Tidak Tercover" value=kpi_high_risk_teks.tidak info="Persentase boundary High Risk di luar seluruh boundary CCTV aktif maupun yang berpotensi." %}
+  {% include "dashboard/partials/stat_card.html" with color="secondary" icon="map" label="Luas High Risk (ha)" value=kpi_high_risk.luas|floatformat:2 info="Total luas boundary High Risk sesuai filter. Nilai ini dihitung terpisah dan tidak ditambahkan ke Luas area kerja." %}
 </div>
 
 <div class="info-blok info-blok-tipis mb-3">
   <i data-feather="info"></i>
   <span>
     {% if f.live %}Angka week berjalan, dihitung ulang setiap ada perubahan CCTV, boundary, atau area kerja{% else %}Angka week terkunci (snapshot Senin 00.00 WITA){% endif %}{% if dihitung_pada %} · {% if f.live %}dihitung{% else %}dikunci{% endif %} {{ dihitung_pada|date:"d M Y H:i" }}{% endif %}.
-    {{ kpi.mitra_site }} Mitra Site · mode {% if f.mode == 'milik' %}CCTV milik kontraktor (angka resmi){% else %}semua CCTV (pembanding){% endif %}.
+    {{ kpi.mitra_site }} Mitra Site · mode {% if f.mode == 'milik' %}CCTV milik kontraktor (angka resmi){% else %}semua CCTV (pembanding){% endif %}
+    · {% if f.dengan_ptz %}PTZ dan PTZ &amp; Fixed disertakan{% else %}PTZ dan PTZ &amp; Fixed tidak disertakan{% endif %}.
+    Boundary High Risk dihitung paralel dan tidak menambah luas area kerja utama.
   </span>
 </div>
 
 <!-- Filters -->
 <div class="card">
-  <div class="card-body">
-    <form method="get" class="row g-2 align-items-end" id="coverage-filter">
+  <div class="card-body p-3">
+    <form method="get" class="coverage-filter-grid" id="coverage-filter">
       <input type="hidden" name="minggu" value="{{ minggu|date:'Y-m-d' }}">
-      <div class="col-xl-2 col-md-4 col-6">
+      <div class="coverage-filter-field">
         <label class="form-label f-12 mb-1" for="f-site">Site</label>
         <select class="form-select form-select-sm" name="site" id="f-site">
           <option value="">Semua</option>
           {% for site in sites %}<option value="{{ site.pk }}"{% if f.site == site.pk %} selected{% endif %}>{{ site.kode }}</option>{% endfor %}
         </select>
       </div>
-      <div class="col-xl-3 col-md-4 col-6">
+      <div class="coverage-filter-field coverage-filter-company">
         <label class="form-label f-12 mb-1" for="f-perusahaan">Kontraktor</label>
         <select class="form-select form-select-sm" name="perusahaan" id="f-perusahaan">
           <option value="">Semua</option>
           {% for p in perusahaan_list %}<option value="{{ p.pk }}"{% if f.perusahaan == p.pk %} selected{% endif %}>{{ p.nama }}</option>{% endfor %}
         </select>
       </div>
-      <div class="col-xl-2 col-md-4 col-6">
+      <div class="coverage-filter-field">
         <label class="form-label f-12 mb-1" for="f-mode">Mode</label>
         <select class="form-select form-select-sm" name="mode" id="f-mode">
           {% for value, label in mode_list %}<option value="{{ value }}"{% if f.mode == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
         </select>
       </div>
-      <div class="col-xl-2 col-md-4 col-6">
+      <div class="coverage-filter-field">
         <label class="form-label f-12 mb-1" for="f-jenis">Jenis area</label>
         <select class="form-select form-select-sm" name="jenis" id="f-jenis">
           <option value="">Semua</option>
           {% for value, label in jenis_list %}<option value="{{ value }}"{% if f.jenis == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
         </select>
       </div>
-      <div class="col-xl-3 col-md-8 col-12 d-flex flex-wrap gap-2">
+      <div class="coverage-filter-field coverage-filter-ptz">
+        <label class="form-label f-12 mb-1 d-block" for="f-ptz">Jenis CCTV</label>
+        <div class="form-check form-switch coverage-ptz-switch">
+          <input class="form-check-input" type="checkbox" role="switch" name="dengan_ptz" value="1" id="f-ptz"{% if f.dengan_ptz %} checked{% endif %}>
+          <label class="form-check-label f-12 text-nowrap" for="f-ptz">Sertakan PTZ</label>
+        </div>
+      </div>
+      <div class="coverage-filter-actions">
         <button class="btn btn-primary btn-sm text-nowrap" type="submit">Terapkan</button>
         <a class="btn btn-light btn-sm" href="?minggu={{ minggu|date:'Y-m-d' }}">Reset</a>
         <a class="btn btn-outline-primary btn-sm text-nowrap" href="{% url 'coverage:export' %}?{{ query }}"><i data-feather="download" class="me-1"></i>Excel</a>
@@ -119,6 +139,10 @@
             <option value="">Semua jenis area</option>
             {% for value, label in jenis_list %}<option value="{{ value }}"{% if f.jenis == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
           </select>
+          <div class="form-check form-switch overlay-ptz-switch f-12">
+            <input class="form-check-input" type="checkbox" name="dengan_ptz" value="1" id="overlay-ptz"{% if f.dengan_ptz %} checked{% endif %}>
+            <label class="form-check-label" for="overlay-ptz">Sertakan PTZ</label>
+          </div>
         </form>
       </div>
       {# The week time slider (static/js/week-timeline.js builds it), fullscreen only. #}
@@ -149,16 +173,16 @@
         </thead>
         <tbody>
           {% for g in tabel %}
-          <tr class="baris-total">
+          {% if g.total.luas %}<tr class="baris-total">
             <td class="f-w-600 text-nowrap">{{ g.site }}</td>
             <td class="f-w-600">{{ g.perusahaan }}</td>
-            <td class="f-w-600">Total</td>
+            <td class="f-w-600">Total area kerja</td>
             <td class="text-end f-w-600">{{ g.total.luas|floatformat:2 }}</td>
             <td class="text-end f-w-600 text-success">{{ g.total.persen.tercover|default_if_none:"-" }}{% if g.total.persen.tercover is not None %}%{% endif %}</td>
             <td class="text-end f-w-600 text-warning">{{ g.total.persen.potensi|default_if_none:"-" }}{% if g.total.persen.potensi is not None %}%{% endif %}</td>
             <td class="text-end f-w-600 text-danger">{{ g.total.persen.tidak|default_if_none:"-" }}{% if g.total.persen.tidak is not None %}%{% endif %}</td>
             <td class="f-12">{{ g.minggu_area_label|default:"-" }}{% if g.fallback %} <span class="text-warning">{{ g.catatan }}</span>{% endif %}</td>
-          </tr>
+          </tr>{% endif %}
           {% for j in g.jenis %}
           <tr class="f-12">
             <td></td><td></td>
@@ -190,6 +214,11 @@
 
 {% block scriptcontent %}
 <script src="{% static 'assets/js/chart/apex-chart/apex-chart.js' %}"></script>
+<script>
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((element) => {
+    new bootstrap.Tooltip(element, { container: 'body' });
+  });
+</script>
 <script type="module">
   import * as maplibregl from 'maplibre-gl';
   import { initCoverageMap, drawTren } from 'besentry/dashboard-coverage';
@@ -224,12 +253,13 @@
     peta.reload(current.peta);
     history.replaceState(null, '', `?${current.query}`);
   }
-  form.querySelectorAll('select').forEach((select) => select.addEventListener('change', apply));
+  form.querySelectorAll('select, input[type="checkbox"]').forEach((control) => control.addEventListener('change', apply));
   peta.fullscreen.onExit(() => { if (current) window.location.reload(); });
 
   // Selects filter immediately, as on CCTV Database.
   document.querySelectorAll('#coverage-filter select').forEach((select) => {
     select.addEventListener('change', () => select.form.submit());
   });
+  document.getElementById('f-ptz').addEventListener('change', (event) => event.currentTarget.form.submit());
 </script>
 {% endblock %}

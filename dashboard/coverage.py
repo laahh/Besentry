@@ -11,7 +11,7 @@ never from averaging percentages.
 
 import datetime
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from django.contrib.gis.db.models import GeometryField
 from django.contrib.gis.db.models.functions import AsGeoJSON, Transform
@@ -19,7 +19,8 @@ from django.db.models import F, FloatField, Func, Sum
 
 from areakerja import kalkulasi, services
 from areakerja.models import (
-    CoverageLive, JenisArea, MitraSite, ModeKalkulasi, SnapshotCoverage, SnapshotCoverageJenis,
+    CoverageLive, JENIS_AREA_UTAMA, JenisArea, MitraSite, ModeKalkulasi, SnapshotCoverage,
+    SnapshotCoverageJenis,
 )
 from cctv.access import get_scope
 from cctv.coverage import UTM_50N, this_monday
@@ -31,6 +32,8 @@ TREN_MINGGU = 12
 GARIS_WAKTU_MINGGU = 52  # the timeline shows a year even before every week has numbers
 SIMPLIFY_M = 0.5  # metres; keeps the map light without visibly moving edges
 JENIS_URUT = [value for value, _ in JenisArea.choices]
+JENIS_UTAMA = [jenis.value for jenis in JENIS_AREA_UTAMA]
+PTZ = (Cctv.Jenis.PTZ, Cctv.Jenis.PTZ_FIXED)
 
 
 def can_open(user):
@@ -45,10 +48,11 @@ def monday(day):
 @dataclass(frozen=True)
 class Filter:
     minggu: datetime.date
-    mode: str = ModeKalkulasi.MILIK
+    mode: str = ModeKalkulasi.SEMUA
     jenis: str = ''
     site: int | None = None
     perusahaan: int | None = None
+    dengan_ptz: bool = False
 
     @classmethod
     def from_query(cls, query):
@@ -62,10 +66,11 @@ class Filter:
         site, perusahaan = query.get('site', ''), query.get('perusahaan', '')
         return cls(
             minggu=min(minggu, this_monday()),
-            mode=mode if mode in ModeKalkulasi.values else ModeKalkulasi.MILIK,
+            mode=mode if mode in ModeKalkulasi.values else ModeKalkulasi.SEMUA,
             jenis=jenis if jenis in JenisArea.values else '',
             site=int(site) if site.isdigit() else None,
             perusahaan=int(perusahaan) if perusahaan.isdigit() else None,
+            dengan_ptz=query.get('dengan_ptz') == '1',
         )
 
     @property
@@ -75,7 +80,8 @@ class Filter:
     def query(self, **changes):
         """The filter as query-string pairs (empty values left out), with `changes` applied."""
         values = {'minggu': self.minggu.isoformat(), 'mode': self.mode, 'jenis': self.jenis,
-                  'site': self.site or '', 'perusahaan': self.perusahaan or '', **changes}
+                  'site': self.site or '', 'perusahaan': self.perusahaan or '',
+                  'dengan_ptz': '1' if self.dengan_ptz else '', **changes}
         return {key: value for key, value in values.items() if value not in ('', None)}
 
 
@@ -89,7 +95,9 @@ def _names(f):
 
 
 def _live(f):
-    rows = CoverageLive.objects.filter(mode=f.mode, mitra_site__aktif=True).select_related('mitra_site__site', 'mitra_site__perusahaan')
+    rows = CoverageLive.objects.filter(
+        mode=f.mode, dengan_ptz=f.dengan_ptz, mitra_site__aktif=True,
+    ).select_related('mitra_site__site', 'mitra_site__perusahaan')
     if f.site:
         rows = rows.filter(mitra_site__site_id=f.site)
     if f.perusahaan:
@@ -98,7 +106,9 @@ def _live(f):
 
 
 def _locked(f, minggu):
-    rows = SnapshotCoverageJenis.objects.filter(mode=f.mode, snapshot__status=SnapshotCoverage.Status.TERKUNCI)
+    rows = SnapshotCoverageJenis.objects.filter(
+        mode=f.mode, dengan_ptz=f.dengan_ptz, snapshot__status=SnapshotCoverage.Status.TERKUNCI,
+    )
     rows = rows.filter(snapshot__minggu__in=minggu) if isinstance(minggu, (list, tuple)) else rows.filter(snapshot__minggu=minggu)
     site, perusahaan = _names(f)
     if f.site:
@@ -113,9 +123,16 @@ def baris(f, geom=False):
     rows = _live(f) if f.live else _locked(f, f.minggu)
     if f.jenis:
         rows = rows.filter(jenis=f.jenis)
+    else:
+        rows = rows.filter(jenis__in=JENIS_UTAMA)
     if not geom:
         rows = rows.defer(*(f'geom_{name}' for name in LAPISAN))
     return rows
+
+
+def baris_high_risk(f, geom=False):
+    """High Risk rows under the same week/site/company/mode filters, independent of the kind filter."""
+    return baris(replace(f, jenis=JenisArea.HIGH_RISK), geom=geom)
 
 
 def asal(row):
@@ -148,6 +165,14 @@ def kpi(rows, mode):
     return summary
 
 
+def kpi_high_risk(rows, mode):
+    """High Risk totals kept separate because this boundary may overlap every operational kind."""
+    rows = list(rows)
+    summary = kalkulasi.ringkasan(rows, mode, jenis=[JenisArea.HIGH_RISK])
+    summary['mitra_site'] = len({asal(r)[:2] for r in rows if r.jenis == JenisArea.HIGH_RISK})
+    return summary
+
+
 def tabel(rows, mode):
     """One entry per site x perusahaan: its total and one line per kind, sorted by site then company."""
     groups = {}
@@ -163,6 +188,7 @@ def tabel(rows, mode):
         group = groups[key]
         rows_ = sorted(group.pop('rows'), key=lambda r: JENIS_URUT.index(r.jenis))
         group['total'] = kalkulasi.ringkasan(rows_, mode)
+        group['high_risk'] = kalkulasi.ringkasan(rows_, mode, jenis=[JenisArea.HIGH_RISK])
         group['jenis'] = [{
             'jenis': r.jenis, 'label': r.get_jenis_display(), 'luas': r.luas_ha, 'tercover': r.tercover_ha,
             'potensi': r.potensi_ha, 'tidak': r.tidak_ha, 'jumlah_cctv': r.jumlah_cctv,
@@ -213,11 +239,15 @@ def _series(f, weeks):
     locked = _locked(f, weeks)
     if f.jenis:
         locked = locked.filter(jenis=f.jenis)
+    else:
+        locked = locked.filter(jenis__in=JENIS_UTAMA)
     by_week = {row.pop('snapshot__minggu'): row for row in locked.values('snapshot__minggu').annotate(**sums)}
     if this_monday() in weeks:
         live = _live(f)
         if f.jenis:
             live = live.filter(jenis=f.jenis)
+        else:
+            live = live.filter(jenis__in=JENIS_UTAMA)
         by_week[this_monday()] = live.aggregate(**sums)
     empty = dict.fromkeys(sums)
     return [_point(week, **by_week.get(week, empty)) for week in weeks]
@@ -296,27 +326,33 @@ def cctv_titik(f):
     """CCTV points of week `f.minggu`: the live table this week, the CCTV snapshot of a closed week."""
     if f.live:
         rows = Cctv.objects.exclude(posisi__isnull=True)
+        if not f.dengan_ptz:
+            rows = rows.exclude(jenis__in=PTZ)
         if f.site:
             rows = rows.filter(site_id=f.site)
         if f.perusahaan:
             rows = rows.filter(perusahaan_id=f.perusahaan)
         lon, lat = _xy('posisi')
-        rows = rows.annotate(lon=lon, lat=lat).values_list('pk', 'no_cctv', 'nama', 'kondisi', 'status', 'lon', 'lat')
+        rows = rows.annotate(lon=lon, lat=lat).values_list(
+            'pk', 'no_cctv', 'nama', 'jenis', 'kondisi', 'status', 'lon', 'lat',
+        )
     else:
         rows = SnapshotMingguan.objects.filter(minggu=f.minggu).exclude(posisi__isnull=True)
+        if not f.dengan_ptz:
+            rows = rows.exclude(data__jenis__in=PTZ)
         if f.site:
             rows = rows.filter(data__site_id=f.site)
         if f.perusahaan:
             rows = rows.filter(data__perusahaan_id=f.perusahaan)
         lon, lat = _xy('posisi')
         rows = rows.annotate(lon=lon, lat=lat).values_list(
-            'cctv_id', 'no_cctv', 'data__nama', 'data__kondisi', 'data__status', 'lon', 'lat')
+            'cctv_id', 'no_cctv', 'data__nama', 'data__jenis', 'data__kondisi', 'data__status', 'lon', 'lat')
     features = [{
         'type': 'Feature',
         'geometry': {'type': 'Point', 'coordinates': [round(lon, 6), round(lat, 6)]},
-        'properties': {'id': pk, 'no': no, 'nama': nama, 'kondisi': kondisi, 'status': status,
+        'properties': {'id': pk, 'no': no, 'nama': nama, 'jenis': jenis, 'kondisi': kondisi, 'status': status,
                        'kelompok': kalkulasi.kelompok(status, kondisi)},
-    } for pk, no, nama, kondisi, status, lon, lat in rows.iterator(chunk_size=2000)]
+    } for pk, no, nama, jenis, kondisi, status, lon, lat in rows.iterator(chunk_size=2000)]
     return _collection(features)
 
 
@@ -331,27 +367,33 @@ def cctv_boundary(f):
 
         geom_of = boundaries()
         rows = Cctv.objects.filter(pk__in=list(geom_of))
+        if not f.dengan_ptz:
+            rows = rows.exclude(jenis__in=PTZ)
         if f.site:
             rows = rows.filter(site_id=f.site)
         if f.perusahaan:
             rows = rows.filter(perusahaan_id=f.perusahaan)
-        cameras = [(pk, no, nama, kondisi, status, geom_of[pk])
-                   for pk, no, nama, kondisi, status in rows.values_list('pk', 'no_cctv', 'nama', 'kondisi', 'status')]
+        cameras = [(pk, no, nama, jenis, kondisi, status, geom_of[pk])
+                   for pk, no, nama, jenis, kondisi, status in rows.values_list(
+                       'pk', 'no_cctv', 'nama', 'jenis', 'kondisi', 'status')]
     else:
         rows = SnapshotMingguan.objects.filter(minggu=f.minggu).exclude(coverage__isnull=True)
+        if not f.dengan_ptz:
+            rows = rows.exclude(data__jenis__in=PTZ)
         if f.site:
             rows = rows.filter(data__site_id=f.site)
         if f.perusahaan:
             rows = rows.filter(data__perusahaan_id=f.perusahaan)
-        cameras = [(pk, no, data.get('nama'), data.get('kondisi'), data.get('status'), geom)
+        cameras = [(pk, no, data.get('nama'), data.get('jenis'), data.get('kondisi'), data.get('status'), geom)
                    for pk, no, data, geom in rows.values_list('cctv_id', 'no_cctv', 'data', 'coverage')]
     features = []
-    for pk, no, nama, kondisi, status, geom in cameras:
+    for pk, no, nama, jenis, kondisi, status, geom in cameras:
         if geom is None or geom.empty:
             continue
         shape = geom.simplify(BOUNDARY_SIMPLIFY_DEG, preserve_topology=True)
         features.append({'type': 'Feature', 'geometry': json.loads(shape.geojson), 'properties': {
-            'id': pk, 'no': no, 'nama': nama, 'kondisi': kondisi, 'kelompok': kalkulasi.kelompok(status, kondisi),
+            'id': pk, 'no': no, 'nama': nama, 'jenis': jenis, 'kondisi': kondisi,
+            'kelompok': kalkulasi.kelompok(status, kondisi),
         }})
     return _collection(features)
 

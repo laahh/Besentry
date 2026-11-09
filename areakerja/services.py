@@ -24,7 +24,8 @@ from cctv.coverage import GeometryError, ReviewError, UTM_50N, _batas_site, read
 from cctv.models import minggu_label
 
 from .models import (
-    AnotasiAreaKerja, AreaKerja, Departemen, JenisArea, MitraSite, PengajuanAreaKerja, RiwayatAreaKerja,
+    AnotasiAreaKerja, AreaKerja, Departemen, JENIS_AREA_UTAMA, JenisArea, MitraSite, PengajuanAreaKerja,
+    RiwayatAreaKerja,
     VerifikasiAreaKerja,
 )
 from .signals import area_kerja_berubah
@@ -33,6 +34,7 @@ Status = PengajuanAreaKerja.Status
 Sumber = AreaKerja.Sumber
 Aksi = RiwayatAreaKerja.Aksi
 JENIS = [jenis.value for jenis in JenisArea]  # priority order
+JENIS_PRIORITAS = [jenis.value for jenis in JENIS_AREA_UTAMA]
 
 
 def luas_ha(geom):
@@ -72,7 +74,7 @@ def read_area(upload):
 
 
 def clip_by_priority(pengajuan):
-    """Each kind loses what a higher kind already covers (Pit > Hauling > Infra Tambang > Infra Non Tambang)."""
+    """Clip the four operational kinds by priority; High Risk stays whole and may overlap them."""
     taken = None
     for jenis in JENIS:
         area = pengajuan.slot(jenis)
@@ -81,12 +83,17 @@ def clip_by_priority(pengajuan):
         source = area.geom_upload
         if source is None:
             area.geom, area.luas_ha, area.dipotong_ha = None, 0.0, 0.0
+        elif jenis == JenisArea.HIGH_RISK:
+            area.geom = source
+            area.luas_ha = luas_ha(source)
+            area.dipotong_ha = 0.0
         else:
             clipped = _multi(source.difference(taken)) if taken is not None else source
             area.geom = clipped
             area.luas_ha = luas_ha(clipped)
             area.dipotong_ha = round(max(0.0, luas_ha(source) - area.luas_ha), 4)
-            taken = source if taken is None else taken.union(source)
+            if jenis in JENIS_PRIORITAS:
+                taken = source if taken is None else taken.union(source)
         area.save(update_fields=['geom', 'luas_ha', 'dipotong_ha', 'diubah'])
 
 

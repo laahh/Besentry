@@ -64,6 +64,13 @@ def _kpi(f, rows):
     return kpi, teks
 
 
+def _kpi_high_risk(f, rows):
+    kpi = coverage.kpi_high_risk(rows, f.mode)
+    teks = {key: (f'{number_format(value, 1)}%' if value is not None else '-') for key, value in kpi['persen'].items()}
+    teks['luas'] = number_format(kpi['luas'], 2)
+    return kpi, teks
+
+
 def _minggu(f):
     """The week as the page shows it, with the weeks before and after (none after this week)."""
     akhir = f.minggu + datetime.timedelta(days=6)
@@ -79,9 +86,11 @@ def data_json(request):
     """KPI and layer URLs for the map's fullscreen panel."""
     f = _filter(request)
     kpi, teks = _kpi(f, list(coverage.baris(f)))
+    kpi_high_risk, teks_high_risk = _kpi_high_risk(f, list(coverage.baris_high_risk(f)))
     week = _minggu(f)
     return JsonResponse({
-        'kpi': kpi, 'kpi_teks': teks, 'query': urlencode(f.query()), 'peta': _peta(f),
+        'kpi': kpi, 'kpi_teks': teks, 'kpi_high_risk': kpi_high_risk,
+        'kpi_high_risk_teks': teks_high_risk, 'query': urlencode(f.query()), 'peta': _peta(f),
         'garis_waktu': coverage.garis_waktu(f),
         'minggu': week['minggu'].isoformat(), 'label': week['label'], 'live': week['live'],
         'rentang': f"{week['minggu']:%d %b} – {week['akhir']:%d %b %Y}",
@@ -93,14 +102,19 @@ def data_json(request):
 def page(request):
     f = _filter(request)
     rows = list(coverage.baris(f))
+    rows_high_risk = list(coverage.baris_high_risk(f))
     sites, perusahaan = coverage.pilihan()
     query = urlencode(f.query())
     filter_qs = urlencode(f.query(minggu=''))  # kept when moving to another week
     kpi, kpi_teks = _kpi(f, rows)
-    tabel = coverage.tabel(rows, f.mode)
+    kpi_high_risk, kpi_high_risk_teks = _kpi_high_risk(f, rows_high_risk)
+    tabel_rows = rows if f.jenis else [*rows, *rows_high_risk]
+    tabel = coverage.tabel(tabel_rows, f.mode)
     return render(request, 'dashboard/coverage.html', {
-        'f': f, 'kpi': kpi, 'kpi_teks': kpi_teks, 'tabel': [g for g in tabel if g['total']['luas']],
-        'tanpa_area': [g for g in tabel if not g['total']['luas']],
+        'f': f, 'kpi': kpi, 'kpi_teks': kpi_teks,
+        'kpi_high_risk': kpi_high_risk, 'kpi_high_risk_teks': kpi_high_risk_teks,
+        'tabel': [g for g in tabel if g['total']['luas'] or g['high_risk']['luas']],
+        'tanpa_area': [g for g in tabel if not g['total']['luas'] and not g['high_risk']['luas']],
         'menunggu': coverage.menunggu(f), 'tren': coverage.tren(f), 'dihitung_pada': coverage.dihitung_pada(f),
         'minggu': f.minggu, 'minggu_ini': this_monday(), 'akhir': f.minggu + datetime.timedelta(days=6),
         'sebelum': f.minggu - datetime.timedelta(days=7),
@@ -144,6 +158,8 @@ def export_xlsx(request):
     """The page's table as a workbook: one line per Mitra Site and kind, with its total."""
     f = _filter(request)
     rows = list(coverage.baris(f))
+    rows_high_risk = list(coverage.baris_high_risk(f))
+    export_rows = rows if f.jenis else [*rows, *rows_high_risk]
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = 'Coverage'
@@ -158,7 +174,7 @@ def export_xlsx(request):
         cell.font = Font(bold=True, color='FFFFFF')
         cell.fill = PatternFill('solid', fgColor='134E2B')
     total_font = Font(bold=True)
-    for group in coverage.tabel(rows, f.mode):
+    for group in coverage.tabel(export_rows, f.mode):
         for line in group['jenis']:
             sheet.append([group['site'], group['perusahaan'], line['label'], line['luas'], line['tercover'], line['potensi'],
                           line['tidak'], line['persen']['tercover'], line['persen']['potensi'], line['persen']['tidak'],
@@ -170,9 +186,15 @@ def export_xlsx(request):
         for cell in sheet[sheet.max_row]:
             cell.font = total_font
     summary = coverage.kpi(rows, f.mode)
+    high_risk = coverage.kpi_high_risk(rows_high_risk, f.mode)
     sheet.append([])
     sheet.append(['Total semua', None, None, summary['luas'], summary['tercover'], summary['potensi'], summary['tidak'],
                   summary['persen']['tercover'], summary['persen']['potensi'], summary['persen']['tidak']])
+    for cell in sheet[sheet.max_row]:
+        cell.font = total_font
+    sheet.append(['Total High Risk', None, None, high_risk['luas'], high_risk['tercover'], high_risk['potensi'],
+                  high_risk['tidak'], high_risk['persen']['tercover'], high_risk['persen']['potensi'],
+                  high_risk['persen']['tidak']])
     for cell in sheet[sheet.max_row]:
         cell.font = total_font
     for column, width in zip('ABCDEFGHIJKLM', (10, 34, 18, 11, 13, 12, 18, 11, 11, 15, 12, 11, 40)):

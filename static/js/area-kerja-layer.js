@@ -15,6 +15,7 @@ export const AREA_WARNA = {
   hauling: '#d81b60',
   infra_tambang: '#1e88e5',
   infra_non_tambang: '#00acc1',
+  high_risk: '#c62828',
 };
 
 export const AREA_LABEL = {
@@ -22,6 +23,7 @@ export const AREA_LABEL = {
   hauling: 'Hauling',
   infra_tambang: 'Infra Tambang',
   infra_non_tambang: 'Infra Non Tambang',
+  high_risk: 'Area High Risk',
 };
 
 export const AREA_LEGEND = [

@@ -71,19 +71,23 @@ class DashboardCoverageTests(TestCase):
         del pending[start:]
 
     def cctv(self, no, boundary, **fields):
+        jenis = fields.pop('jenis', 'fixed')
         with self.committed():
-            cctv = Cctv.objects.create(no_cctv=no, nama=no, site=self.site, perusahaan=self.pama, jenis='fixed',
+            cctv = Cctv.objects.create(no_cctv=no, nama=no, site=self.site, perusahaan=self.pama, jenis=jenis,
                                        posisi=Point(X, Y, srid=4326), **fields)
             CctvCoverage.objects.create(cctv=cctv, minggu=W45, geom=MultiPolygon(boundary, srid=4326))
         return cctv
 
-    def area(self, approve=True, minggu=W45):
-        """The week's pit: a 0.004 degree square (~19.7 ha); the other kinds 'tidak ada'."""
+    def area(self, approve=True, minggu=W45, high_risk=False):
+        """Create the week's pit, optionally with an overlapping High Risk boundary."""
         with mock.patch('areakerja.services.this_monday', return_value=minggu), self.committed():
             pengajuan = services.request_for(self.mitra_site, self.survey_bc)
             services.save_slot(pengajuan, self.survey_bc, 'pit', 'upload', shp_zip([square(X, Y, 0.004)]))
             for jenis in [j.value for j in JenisArea][1:]:
-                services.save_slot(pengajuan, self.survey_bc, jenis, 'tidak_ada')
+                if jenis == JenisArea.HIGH_RISK and high_risk:
+                    services.save_slot(pengajuan, self.survey_bc, jenis, 'upload', shp_zip([square(X, Y, 0.004)]))
+                else:
+                    services.save_slot(pengajuan, self.survey_bc, jenis, 'tidak_ada')
             services.ajukan(pengajuan, self.survey_bc)
             if approve:
                 setujui_semua(pengajuan, self.survey_bc)
@@ -125,6 +129,43 @@ class DashboardCoverageTests(TestCase):
         semua = self.get('index', mode='semua').context['kpi']
         self.assertAlmostEqual(semua['persen']['tercover'], 25.0, delta=0.5)
         self.assertEqual(self.get('index', jenis='hauling').context['kpi']['luas'], 0)
+
+    def test_kpi_cards_explain_their_sources(self):
+        response = self.get('index')
+
+        self.assertContains(response, 'aria-label="Penjelasan Tercover"')
+        self.assertContains(response, 'aria-label="Penjelasan Potensi"')
+        self.assertContains(response, 'aria-label="Penjelasan Tidak tercover"')
+        self.assertContains(response, 'aria-label="Penjelasan Luas area (ha)"')
+        self.assertContains(response, 'Area yang dilihat beberapa CCTV hanya dihitung satu kali.')
+        self.assertContains(response, 'Overlap antarjenis dihitung sekali menurut prioritas Pit')
+
+    def test_high_risk_has_separate_kpi_cards(self):
+        self.area(high_risk=True)
+        self.cctv('A', square(X, Y, 0.002))
+        response = self.get('index')
+
+        self.assertAlmostEqual(response.context['kpi']['persen']['tercover'], 25.0, delta=0.5)
+        self.assertAlmostEqual(response.context['kpi_high_risk']['persen']['tercover'], 25.0, delta=0.5)
+        self.assertAlmostEqual(response.context['kpi']['luas'], response.context['kpi_high_risk']['luas'], delta=0.01)
+        self.assertContains(response, '<span class="m-0">Tercover</span>', count=2, html=True)
+        self.assertContains(response, 'Luas High Risk (ha)')
+        self.assertContains(response, 'tidak ditambahkan ke Luas area kerja')
+        kinds = [line['jenis'] for line in response.context['tabel'][0]['jenis']]
+        self.assertEqual(kinds, ['pit', 'high_risk'])
+
+    def test_ptz_toggle_switches_the_precomputed_variant(self):
+        self.area()
+        self.cctv('FIXED', square(X, Y, 0.002), jenis='fixed')
+        self.cctv('PTZ', square(X + 0.002, Y, 0.002), jenis='ptz')
+
+        default = self.get('index')
+        with_ptz = self.get('index', dengan_ptz='1')
+        self.assertAlmostEqual(default.context['kpi']['persen']['tercover'], 25.0, delta=0.5)
+        self.assertAlmostEqual(with_ptz.context['kpi']['persen']['tercover'], 50.0, delta=0.5)
+        self.assertNotContains(default, 'id="f-ptz" checked')
+        self.assertContains(with_ptz, 'id="f-ptz" checked')
+        self.assertEqual(Filter.from_query({'dengan_ptz': '1'}).dengan_ptz, True)
 
     def test_closed_week_reads_the_locked_snapshot(self):
         self.area()
@@ -229,16 +270,17 @@ class DashboardCoverageTests(TestCase):
         self.area()
         self.cctv('A', square(X, Y, 0.002))
         response = self.get('export')
-        self.assertIn('coverage-W45-2026-milik.xlsx', response['Content-Disposition'])
+        self.assertIn('coverage-W45-2026-semua.xlsx', response['Content-Disposition'])
         sheet = load_workbook(io.BytesIO(response.content)).active
         rows = [[cell.value for cell in row] for row in sheet.iter_rows(min_row=4)]
         self.assertEqual(rows[0][:3], ['LMO', 'PT Pamapersada Nusantara', 'Pit'])
         self.assertEqual(rows[1][2], 'Total')
         self.assertAlmostEqual(rows[1][7], 25.0, delta=0.5)
-        self.assertEqual(rows[-1][0], 'Total semua')
+        self.assertEqual(rows[-2][0], 'Total semua')
+        self.assertEqual(rows[-1][0], 'Total High Risk')
 
     def test_filter_from_the_query_string(self):
         f = Filter.from_query({'minggu': '2026-11-20', 'mode': 'x', 'jenis': 'pit', 'site': 'abc'})
-        self.assertEqual((f.minggu, f.mode, f.jenis, f.site), (W45, 'milik', 'pit', None))  # no future weeks
+        self.assertEqual((f.minggu, f.mode, f.jenis, f.site), (W45, 'semua', 'pit', None))  # no future weeks
         self.assertEqual(Filter.from_query({}).minggu, W45)
-        self.assertEqual(f.query(), {'minggu': '2026-11-02', 'mode': 'milik', 'jenis': 'pit'})
+        self.assertEqual(f.query(), {'minggu': '2026-11-02', 'mode': 'semua', 'jenis': 'pit'})
